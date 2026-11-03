@@ -19,15 +19,15 @@ secondaires et protocole : [`docs/metric.md`](docs/metric.md).
 ## Démarrage
 
 ```bash
-uv sync                       # Python 3.12, dépendances + dvc[gdrive]
-uv run dvc pull               # récupère les données versionnées (voir « Remote DVC »)
+uv sync                       # Python 3.12, dépendances + dvc
+uv run dvc pull               # données versionnées depuis ../pga-dvcstore (voir « Remote DVC »)
 uv run pytest                 # tests des parseurs
 ```
 
 Pour (re)construire les données depuis les API (≈ 30-40 min, surtout du throttle) :
 
 ```bash
-uv run dvc repro              # calendar → leaderboards → rounds → courses → weather → features
+uv run dvc repro              # sans stockage : reconstruit tout ; calendar → leaderboards → rounds → courses → weather → features
 uv run dvc push
 ```
 
@@ -75,20 +75,22 @@ tours antérieurs du joueur, l'historique et la difficulté du parcours que les 
 précédentes ; la météo observée (`obs_*`, `diff_*`) est réservée au monitoring de drift.
 Vérifié par `tests/test_features.py`.
 
-## Remote DVC (Google Drive)
+## Remote DVC (stockage local)
 
-Une fois pour le projet (Léo) :
-1. Créer un dossier partagé sur Google Drive et le partager avec l'équipe ; son
-   identifiant est la fin de l'URL `drive.google.com/drive/folders/<FOLDER_ID>`.
-2. `uv run dvc remote add -d gdrive gdrive://<FOLDER_ID>` puis committer `.dvc/config`.
+Le remote par défaut `localstore` est un dossier **à côté du dépôt** :
+`../pga-dvcstore` (chemin relatif, identique pour chaque membre).
+Google Drive a été écarté : l'application OAuth de DVC est bloquée par Google et les
+comptes étudiants ne peuvent pas créer leur propre client OAuth.
 
-Pour chaque membre : `uv run dvc pull` ouvre une authentification Google dans le
-navigateur. Si Google bloque le client OAuth par défaut de DVC, créer un client OAuth
-« Desktop » dans Google Cloud Console et le déclarer **en local uniquement** :
+Deux façons d'obtenir les données sur une nouvelle machine :
 
-```bash
-uv run dvc remote modify --local gdrive gdrive_client_id '<id>'
-uv run dvc remote modify --local gdrive gdrive_client_secret '<secret>'
-```
+1. **Reconstruire depuis les API** (aucune clé, ≈ 30-40 min) : `uv run dvc repro`.
+   Les sources sont gratuites et les étapes idempotentes. Si une API a modifié ses
+   données entre-temps, `uv run dvc status` le signale (hash différent du `dvc.lock`).
+2. **Copier le stockage** : récupérer le dossier `pga-dvcstore` (≈ 130 Mo, zip partagé
+   entre membres), le placer à côté du dépôt, puis `uv run dvc pull`.
+
+Pour utiliser un autre emplacement sans toucher au dépôt :
+`uv run dvc remote modify --local localstore url /chemin/vers/pga-dvcstore`.
 
 `.dvc/config.local` et `.env` sont ignorés par git : aucun secret dans le dépôt.
