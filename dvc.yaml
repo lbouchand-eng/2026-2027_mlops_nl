@@ -1,0 +1,55 @@
+stages:
+  calendar:
+    cmd: uv run python -m pga.calendar
+    deps:
+      - src/pga/calendar.py
+      - src/pga/http.py
+    params:
+      - collect
+    outs:
+      - data/raw/espn/scoreboard
+      - data/interim/events.parquet
+
+  leaderboards:
+    cmd: uv run python -m pga.leaderboards
+    deps:
+      - src/pga/leaderboards.py
+      - data/interim/events.parquet
+    outs:
+      - data/raw/espn/leaderboard:
+          persist: true   # cache local : on ne re-télécharge pas tout à chaque repro
+
+  rounds:
+    cmd: uv run python -m pga.rounds
+    deps:
+      - src/pga/rounds.py
+      - data/interim/events.parquet
+      - data/raw/espn/leaderboard
+    params:
+      - rounds
+    outs:
+      - data/processed/rounds.parquet
+
+  courses:
+    cmd: uv run python -m pga.geocode
+    deps:
+      - src/pga/geocode.py
+      - data/processed/rounds.parquet
+      - data/courses_override.csv
+    outs:
+      - data/raw/geocode:
+          persist: true
+      - data/interim/courses.parquet
+
+  weather:
+    cmd: uv run python -m pga.weather
+    deps:
+      - src/pga/weather.py
+      - data/processed/rounds.parquet
+      - data/interim/courses.parquet
+    params:
+      - weather
+    outs:
+      - data/raw/meteo:
+          persist: true
+      - data/processed/weather_rounds.parquet

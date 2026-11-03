@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.py[oc]
+.pytest_cache/
+.DS_Store
+.env
+.dvc/config.local
+feasibility_out/
+scripts/feasibility_out/
+# DVC-tracked outputs
+/data/raw
+/data/interim
+/data/processed

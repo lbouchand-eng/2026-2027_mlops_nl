@@ -1,0 +1,30 @@
+[project]
+name = "pga-mlops"
+version = "0.1.0"
+description = "Prédiction du score vs par par joueur et par tour sur le PGA Tour (projet MLOps)"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+authors = [
+    { name = "Léo Bouchand", email = "lbouchand@albertschool.com" },
+]
+dependencies = [
+    "dvc[gdrive]>=3.55",
+    "pandas>=2.2",
+    "pyarrow>=17",
+    "pyyaml>=6",
+    "requests>=2.32",
+    "tenacity>=9",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["uv_build>=0.8,<0.13"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "pga"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

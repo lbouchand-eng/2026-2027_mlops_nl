@@ -1,0 +1,30 @@
+schema: '2.0'
+stages:
+  calendar:
+    cmd: uv run python -m pga.calendar
+    deps:
+    - path: src/pga/calendar.py
+      hash: md5
+      md5: bd65db392aca9a25cb62e053d6670633
+      size: 1971
+    - path: src/pga/http.py
+      hash: md5
+      md5: 8c3e55140704f1471c638dc07cc70509
+      size: 2158
+    params:
+      params.yaml:
+        collect:
+          first_year: 2016
+          last_year: 2024
+          request_interval_s: 1.0
+          timeout_s: 30
+    outs:
+    - path: data/interim/events.parquet
+      hash: md5
+      md5: 1575acee887ebc31dc08d2dffeba4087
+      size: 16892
+    - path: data/raw/espn/scoreboard
+      hash: md5
+      md5: cb1c3ea34f9c486128cdb95b1780d657.dir
+      size: 4779041
+      nfiles: 10
