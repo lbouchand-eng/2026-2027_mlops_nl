@@ -28,6 +28,13 @@ weather:
     - wind_gusts_10m
     - wind_direction_10m
 
+features:
+  form_window_short: 10     # nb de tours pour la forme courte
+  form_window_long: 40      # nb de tours pour la forme longue
+  form_ewm_halflife: 15     # demi-vie (en tours) de la moyenne exponentielle
+  form_min_periods: 3       # tours minimum avant de calculer une moyenne glissante
+  course_shrink_k: 8        # pseudo-tours de rétrécissement de l'historique parcours vers 0
+
 split:
   history: [2016, 2020]
   reference: [2021, 2022]

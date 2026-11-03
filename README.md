@@ -27,7 +27,7 @@ uv run pytest                 # tests des parseurs
 Pour (re)construire les données depuis les API (≈ 30-40 min, surtout du throttle) :
 
 ```bash
-uv run dvc repro              # calendar → leaderboards → rounds → courses → weather
+uv run dvc repro              # calendar → leaderboards → rounds → courses → weather → features
 uv run dvc push
 ```
 
@@ -43,6 +43,7 @@ réutilisées si elles existent déjà. Un script interrompu se relance sans per
 | `rounds`       | `src/pga/rounds.py`       | `data/processed/rounds.parquet`                |
 | `courses`      | `src/pga/geocode.py`      | `data/interim/courses.parquet`                 |
 | `weather`      | `src/pga/weather.py`      | `data/processed/weather_rounds.parquet`        |
+| `features`     | `src/pga/features.py`     | `data/processed/features.parquet`              |
 
 Sources (gratuites, sans clé) :
 - ESPN `site.api.espn.com/.../golf/pga/scoreboard?dates=` (calendrier) et
@@ -56,6 +57,23 @@ Choix de nettoyage (`rounds.py`) : stroke-play individuel uniquement (match play
 team events exclus), tours de playoff exclus, dernier tour d'un joueur WD/DQ retiré,
 `to_par` pris dans `displayValue` d'ESPN (correct même sur les tournois multi-parcours,
 signalés par `multi_course`). Paramètres dans `params.yaml`.
+
+## Features (`features.py`)
+
+Une ligne par joueur-tour ; schéma unique `FEATURES` / `TARGET` importable
+(`from pga.features import FEATURES, TARGET`) par l'entraînement, l'API et le monitoring.
+
+| Groupe | Features |
+|---|---|
+| Forme relative au field | `form_rel_short`, `form_rel_long`, `form_ewm`, `n_rounds_hist`, `days_since_last`, `is_new_player` |
+| Historique / difficulté parcours | `course_rel_mean`, `course_n_rounds`, `course_diff_mean`, `course_diff_std`, `is_new_course` |
+| Météo **prévue** | `fc_temp_mean`, `fc_humidity_mean`, `fc_precip_sum`, `fc_wind_mean`, `fc_gust_max` |
+| Contexte | `round`, `major`, `multi_course`, `yards`, `host_par` |
+
+Anti-fuite : `rel = to_par − moyenne du field (tournoi, tour)` ; la forme n'utilise que les
+tours antérieurs du joueur, l'historique et la difficulté du parcours que les éditions
+précédentes ; la météo observée (`obs_*`, `diff_*`) est réservée au monitoring de drift.
+Vérifié par `tests/test_features.py`.
 
 ## Remote DVC (Google Drive)
 

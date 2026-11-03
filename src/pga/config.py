@@ -18,6 +18,7 @@ EVENTS = INTERIM / "events.parquet"
 COURSES = INTERIM / "courses.parquet"
 ROUNDS = PROCESSED / "rounds.parquet"
 WEATHER_ROUNDS = PROCESSED / "weather_rounds.parquet"
+FEATURES_PATH = PROCESSED / "features.parquet"
 COURSES_OVERRIDE = DATA / "courses_override.csv"
 
 

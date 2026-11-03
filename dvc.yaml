@@ -53,3 +53,15 @@ stages:
       - data/raw/meteo:
           persist: true
       - data/processed/weather_rounds.parquet
+
+  features:
+    cmd: uv run python -m pga.features
+    deps:
+      - src/pga/features.py
+      - data/processed/rounds.parquet
+      - data/processed/weather_rounds.parquet
+    params:
+      - features
+      - split
+    outs:
+      - data/processed/features.parquet
