@@ -60,7 +60,7 @@ production.
 
 Le protocole initial entraînait sur 2021 seulement (2016-2020 servant d'historique). Après
 expérience, la fenêtre d'entraînement est étendue à **2018-2021** : c'est le seul levier
-significatif trouvé (MAE validation 2,411 → ≈ 2,37), avec deux features de niveau de fond
+significatif trouvé (MAE validation 2,411 → 2,380, skill +6,0 % → +7,2 %), avec deux features de niveau de fond
 du joueur. 2018 est la première année où la météo prévue est disponible à 100 %.
 
 **La métrique, la baseline, l'année de validation et la règle de promotion sont

@@ -152,22 +152,25 @@ stages:
       size: 2122528
     - path: src/pga/features.py
       hash: md5
-      md5: f81aba9e53fdcb4e982977670b8c9251
-      size: 6427
+      md5: 2bb1e85d51d12cdf593821d795ae9b7b
+      size: 6723
     params:
       params.yaml:
         features:
           form_window_short: 10
           form_window_long: 40
+          form_window_xlong: 150
           form_ewm_halflife: 15
+          form_ewm_halflife_slow: 50
           form_min_periods: 3
+          form_min_periods_xlong: 10
           course_shrink_k: 8
         split:
           history:
           - 2016
-          - 2020
+          - 2017
           reference:
-          - 2021
+          - 2018
           - 2022
           drift:
           - 2023
@@ -175,15 +178,15 @@ stages:
     outs:
     - path: data/processed/features.parquet
       hash: md5
-      md5: 9b3de8fb3a8eedf002edce58926cb430
-      size: 7002382
+      md5: 5134dacd392968b0681061650f3b5de2
+      size: 9920370
   train:
     cmd: uv run python -m pga.train
     deps:
     - path: data/processed/features.parquet
       hash: md5
-      md5: 9b3de8fb3a8eedf002edce58926cb430
-      size: 7002382
+      md5: 5134dacd392968b0681061650f3b5de2
+      size: 9920370
     - path: src/pga/train.py
       hash: md5
       md5: 56e5fa1d5f4073fd8130c88686f4433b
@@ -192,13 +195,13 @@ stages:
       params.yaml:
         train:
           train_years:
-          - 2021
+          - 2018
           - 2021
           valid_years:
           - 2022
           - 2022
           refit_years:
-          - 2021
+          - 2018
           - 2022
           eval_years:
           - 2023
@@ -214,5 +217,5 @@ stages:
     outs:
     - path: reports/metrics.json
       hash: md5
-      md5: a5b452624d3bd49f0e1345ad672b9f9a
+      md5: 65d22f673adef9fd697a35277964c71e
       size: 845
