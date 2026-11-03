@@ -6,8 +6,8 @@ historique sur le parcours et la difficulté du parcours (éditions passées uni
 
 | Période    | Rôle                                         |
 |------------|----------------------------------------------|
-| 2016-2020  | historique pour construire les variables     |
-| 2021-2022  | entraînement / référence                     |
+| 2016-2017  | historique pour construire les variables     |
+| 2018-2022  | entraînement / référence (validation : 2022) |
 | 2023-2024  | période de drift                             |
 
 ## Métrique
@@ -86,7 +86,7 @@ uv run mlflow ui --backend-store-uri "sqlite:///mlflow.db"   # http://127.0.0.1:
 
 - Modèle : `HistGradientBoostingRegressor(loss="absolute_error")`, qui optimise directement la MAE
   et gère les valeurs manquantes. Hyperparamètres dans `params.yaml → train`.
-- Protocole : fit 2021, validation 2022 (décision), refit 2021-2022 (modèle enregistré),
+- Protocole : fit 2018-2021, validation 2022 (décision), refit 2018-2022 (modèle enregistré),
   évaluation informative sur 2023 et 2024 (drift).
 - Chaque run logue : hyperparamètres et fenêtres d'années (params) ; MAE, RMSE, biais,
   skill, MAE par tour (metrics) ; `git_commit`, `git_dirty`, `data_hash` (md5 de

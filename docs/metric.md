@@ -50,7 +50,25 @@ production.
 
 | Période   | Rôle |
 |-----------|------|
-| 2016-2020 | historique pour calculer les features (forme, parcours) ; pas d'entraînement |
-| 2021      | entraînement |
+| 2016-2017 | historique pour calculer les features (forme, parcours) ; pas d'entraînement |
+| 2018-2021 | entraînement |
 | 2022      | validation (choix des hyperparamètres, décision de promotion) |
+| 2018-2022 | période de référence : le modèle enregistré est réentraîné dessus |
 | 2023-2024 | période de drift : évaluation par tournoi, alimente le monitoring |
+
+### Révision du 2026-11-03
+
+Le protocole initial entraînait sur 2021 seulement (2016-2020 servant d'historique). Après
+expérience, la fenêtre d'entraînement est étendue à **2018-2021** : c'est le seul levier
+significatif trouvé (MAE validation 2,411 → ≈ 2,37), avec deux features de niveau de fond
+du joueur. 2018 est la première année où la météo prévue est disponible à 100 %.
+
+**La métrique, la baseline, l'année de validation et la règle de promotion sont
+inchangées.** Le nouveau modèle a été soumis à la même règle que le précédent (voir le
+Registry : la v1 est conservée sous l'alias `previous`).
+
+Pistes testées sans gain (validation 2022, MAE) : météo propre à la vague de départ
+(2,415), force et taille du field (2,416), tour précédent du même tournoi (2,415),
+hyperparamètres (2,410 à 2,424), perte quadratique (2,424). Même la météo **observée**
+(information indisponible en production) ne gagne que 0,007 coup : le score d'un tour est
+dominé par un bruit irréductible.

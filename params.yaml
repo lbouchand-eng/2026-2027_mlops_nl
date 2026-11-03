@@ -39,14 +39,14 @@ features:
   course_shrink_k: 8        # pseudo-tours de rétrécissement de l'historique parcours vers 0
 
 split:
-  history: [2016, 2020]
-  reference: [2021, 2022]
+  history: [2016, 2017]
+  reference: [2018, 2022]
   drift: [2023, 2024]
 
 train:
-  train_years: [2021, 2021]   # fit pour la validation
+  train_years: [2018, 2021]   # fit pour la validation (2018 = 1re année avec météo prévue complète)
   valid_years: [2022, 2022]   # décision de promotion
-  refit_years: [2021, 2022]   # modèle enregistré : toute la période de référence
+  refit_years: [2018, 2022]   # modèle enregistré : toute la période de référence
   eval_years: [2023, 2024]    # période de drift : informatif, jamais utilisé pour décider
   random_state: 42
   registered_model_name: pga-score-model
