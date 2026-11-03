@@ -177,3 +177,42 @@ stages:
       hash: md5
       md5: 9b3de8fb3a8eedf002edce58926cb430
       size: 7002382
+  train:
+    cmd: uv run python -m pga.train
+    deps:
+    - path: data/processed/features.parquet
+      hash: md5
+      md5: 9b3de8fb3a8eedf002edce58926cb430
+      size: 7002382
+    - path: src/pga/train.py
+      hash: md5
+      md5: 56e5fa1d5f4073fd8130c88686f4433b
+      size: 10813
+    params:
+      params.yaml:
+        train:
+          train_years:
+          - 2021
+          - 2021
+          valid_years:
+          - 2022
+          - 2022
+          refit_years:
+          - 2021
+          - 2022
+          eval_years:
+          - 2023
+          - 2024
+          random_state: 42
+          registered_model_name: pga-score-model
+          model:
+            learning_rate: 0.05
+            max_iter: 300
+            max_leaf_nodes: 31
+            min_samples_leaf: 200
+            l2_regularization: 1.0
+    outs:
+    - path: reports/metrics.json
+      hash: md5
+      md5: a5b452624d3bd49f0e1345ad672b9f9a
+      size: 845
