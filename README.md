@@ -27,7 +27,7 @@ uv run pytest                 # tests des parseurs
 Pour (re)construire les données depuis les API (≈ 30-40 min, surtout du throttle) :
 
 ```bash
-uv run dvc repro              # sans stockage : reconstruit tout ; calendar → leaderboards → rounds → courses → weather → features
+uv run dvc repro              # sans stockage : reconstruit tout ; calendar → leaderboards → rounds → courses → weather → features → train
 uv run dvc push
 ```
 
@@ -44,6 +44,7 @@ réutilisées si elles existent déjà. Un script interrompu se relance sans per
 | `courses`      | `src/pga/geocode.py`      | `data/interim/courses.parquet`                 |
 | `weather`      | `src/pga/weather.py`      | `data/processed/weather_rounds.parquet`        |
 | `features`     | `src/pga/features.py`     | `data/processed/features.parquet`              |
+| `train`        | `src/pga/train.py`        | run MLflow + version du Registry, `reports/metrics.json` |
 
 Sources (gratuites, sans clé) :
 - ESPN `site.api.espn.com/.../golf/pga/scoreboard?dates=` (calendrier) et
@@ -74,6 +75,28 @@ Anti-fuite : `rel = to_par − moyenne du field (tournoi, tour)` ; la forme n'ut
 tours antérieurs du joueur, l'historique et la difficulté du parcours que les éditions
 précédentes ; la météo observée (`obs_*`, `diff_*`) est réservée au monitoring de drift.
 Vérifié par `tests/test_features.py`.
+
+## Entraînement et MLflow (`train.py`)
+
+```bash
+uv run dvc repro train                       # ou : uv run python -m pga.train [--refit-years 2021 2023]
+uv run dvc metrics show                      # MAE / skill de validation
+uv run mlflow ui --backend-store-uri "sqlite:///mlflow.db"   # http://127.0.0.1:5000
+```
+
+- Modèle : `HistGradientBoostingRegressor(loss="absolute_error")`, qui optimise directement la MAE
+  et gère les valeurs manquantes. Hyperparamètres dans `params.yaml → train`.
+- Protocole : fit 2021, validation 2022 (décision), refit 2021-2022 (modèle enregistré),
+  évaluation informative sur 2023 et 2024 (drift).
+- Chaque run logue : hyperparamètres et fenêtres d'années (params) ; MAE, RMSE, biais,
+  skill, MAE par tour (metrics) ; `git_commit`, `git_dirty`, `data_hash` (md5 de
+  `features.parquet`, identique à `dvc.lock`) (tags) ; le modèle avec sa signature.
+- Registry : modèle `pga-score-model`. Alias **`champion`** = modèle servi, **`previous`** =
+  champion précédent (cible du rollback). Promotion seulement si skill > 0 et MAE de
+  validation meilleure que celle du champion (`docs/metric.md`).
+- Stockage local : `mlflow.db` (runs + registry) et `mlartifacts/` (modèles), ignorés par git ;
+  URI surchargeable via `MLFLOW_TRACKING_URI` dans `.env` (voir `.env.example`).
+  Chargement : `mlflow.pyfunc.load_model("models:/pga-score-model@champion")`.
 
 ## Remote DVC (stockage local)
 

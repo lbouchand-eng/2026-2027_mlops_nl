@@ -65,3 +65,14 @@ stages:
       - split
     outs:
       - data/processed/features.parquet
+
+  train:
+    cmd: uv run python -m pga.train
+    deps:
+      - src/pga/train.py
+      - data/processed/features.parquet
+    params:
+      - train
+    metrics:
+      - reports/metrics.json:
+          cache: false

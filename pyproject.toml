@@ -9,10 +9,13 @@ authors = [
 ]
 dependencies = [
     "dvc>=3.55",
+    "mlflow>=3.17.2",
     "pandas>=2.2",
     "pyarrow>=17",
+    "python-dotenv>=1.2.4",
     "pyyaml>=6",
     "requests>=2.32",
+    "scikit-learn>=1.9.1",
     "tenacity>=9",
 ]
 

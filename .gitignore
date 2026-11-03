@@ -11,3 +11,8 @@ scripts/feasibility_out/
 /data/raw
 /data/interim
 /data/processed
+
+# MLflow (local)
+mlflow.db
+mlartifacts/
+mlruns/

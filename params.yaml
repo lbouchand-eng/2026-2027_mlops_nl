@@ -39,3 +39,17 @@ split:
   history: [2016, 2020]
   reference: [2021, 2022]
   drift: [2023, 2024]
+
+train:
+  train_years: [2021, 2021]   # fit pour la validation
+  valid_years: [2022, 2022]   # décision de promotion
+  refit_years: [2021, 2022]   # modèle enregistré : toute la période de référence
+  eval_years: [2023, 2024]    # période de drift : informatif, jamais utilisé pour décider
+  random_state: 42
+  registered_model_name: pga-score-model
+  model:
+    learning_rate: 0.05
+    max_iter: 300
+    max_leaf_nodes: 31
+    min_samples_leaf: 200
+    l2_regularization: 1.0

@@ -24,3 +24,9 @@ COURSES_OVERRIDE = DATA / "courses_override.csv"
 
 def params() -> dict:
     return yaml.safe_load((ROOT / "params.yaml").read_text())
+
+REPORTS = ROOT / "reports"
+METRICS_PATH = REPORTS / "metrics.json"
+MLARTIFACTS = ROOT / "mlartifacts"
+# Surchargeable par la variable d'environnement MLFLOW_TRACKING_URI (.env).
+MLFLOW_URI = f"sqlite:///{ROOT / 'mlflow.db'}"
