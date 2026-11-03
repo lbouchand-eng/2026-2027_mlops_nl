@@ -28,3 +28,152 @@ stages:
       md5: cb1c3ea34f9c486128cdb95b1780d657.dir
       size: 4779041
       nfiles: 10
+  leaderboards:
+    cmd: uv run python -m pga.leaderboards
+    deps:
+    - path: data/interim/events.parquet
+      hash: md5
+      md5: 1575acee887ebc31dc08d2dffeba4087
+      size: 16892
+    - path: src/pga/leaderboards.py
+      hash: md5
+      md5: d10ca5e66c98f95d56824fcd3f374395
+      size: 1481
+    outs:
+    - path: data/raw/espn/leaderboard
+      hash: md5
+      md5: 46ea65d8eabb6123b0dc322a6dbfc6f4.dir
+      size: 111767822
+      nfiles: 456
+  rounds:
+    cmd: uv run python -m pga.rounds
+    deps:
+    - path: data/interim/events.parquet
+      hash: md5
+      md5: 1575acee887ebc31dc08d2dffeba4087
+      size: 16892
+    - path: data/raw/espn/leaderboard
+      hash: md5
+      md5: 46ea65d8eabb6123b0dc322a6dbfc6f4.dir
+      size: 111767822
+      nfiles: 456
+    - path: src/pga/rounds.py
+      hash: md5
+      md5: b67a7da1d185a56906d1d459d2f35f57
+      size: 6775
+    params:
+      params.yaml:
+        rounds:
+          exclude_name_patterns:
+          - Presidents Cup
+          - Ryder Cup
+          - Zurich Classic
+          - QBE Shootout
+          - Hero World Challenge
+          - Match Play
+          - Grant Thornton
+          - Olympic
+    outs:
+    - path: data/processed/rounds.parquet
+      hash: md5
+      md5: 4d32ffefed27a31ae12876155438faa1
+      size: 1247379
+  courses:
+    cmd: uv run python -m pga.geocode
+    deps:
+    - path: data/courses_override.csv
+      hash: md5
+      md5: 3b165829d7055e04ee7469ed795176cb
+      size: 35
+    - path: data/processed/rounds.parquet
+      hash: md5
+      md5: 4d32ffefed27a31ae12876155438faa1
+      size: 1247379
+    - path: src/pga/geocode.py
+      hash: md5
+      md5: c50a62d25c7642bdfc00f6a2c7c6c92a
+      size: 3889
+    outs:
+    - path: data/interim/courses.parquet
+      hash: md5
+      md5: e626e6e36cb57d23d361759dad4f0a2b
+      size: 12403
+    - path: data/raw/geocode
+      hash: md5
+      md5: 915ca240ec67ed3d5907f2afbe71f33f.dir
+      size: 55969
+      nfiles: 124
+  weather:
+    cmd: uv run python -m pga.weather
+    deps:
+    - path: data/interim/courses.parquet
+      hash: md5
+      md5: e626e6e36cb57d23d361759dad4f0a2b
+      size: 12403
+    - path: data/processed/rounds.parquet
+      hash: md5
+      md5: 4d32ffefed27a31ae12876155438faa1
+      size: 1247379
+    - path: src/pga/weather.py
+      hash: md5
+      md5: a202bbbc24220affa84c0c0b3b9f35fa
+      size: 5660
+    params:
+      params.yaml:
+        weather:
+          window_hours: 5
+          hourly:
+          - temperature_2m
+          - relative_humidity_2m
+          - precipitation
+          - wind_speed_10m
+          - wind_gusts_10m
+          - wind_direction_10m
+    outs:
+    - path: data/processed/weather_rounds.parquet
+      hash: md5
+      md5: 6dc431ea437340b7598ea66fa3a2f404
+      size: 2122528
+    - path: data/raw/meteo
+      hash: md5
+      md5: b57b9d4659c8313d8512c15ac106f2bd.dir
+      size: 4691902
+      nfiles: 776
+  features:
+    cmd: uv run python -m pga.features
+    deps:
+    - path: data/processed/rounds.parquet
+      hash: md5
+      md5: 4d32ffefed27a31ae12876155438faa1
+      size: 1247379
+    - path: data/processed/weather_rounds.parquet
+      hash: md5
+      md5: 6dc431ea437340b7598ea66fa3a2f404
+      size: 2122528
+    - path: src/pga/features.py
+      hash: md5
+      md5: f81aba9e53fdcb4e982977670b8c9251
+      size: 6427
+    params:
+      params.yaml:
+        features:
+          form_window_short: 10
+          form_window_long: 40
+          form_ewm_halflife: 15
+          form_min_periods: 3
+          course_shrink_k: 8
+        split:
+          history:
+          - 2016
+          - 2020
+          reference:
+          - 2021
+          - 2022
+          drift:
+          - 2023
+          - 2024
+    outs:
+    - path: data/processed/features.parquet
+      hash: md5
+      md5: 9b3de8fb3a8eedf002edce58926cb430
+      size: 7002382
