@@ -66,7 +66,7 @@ Une ligne par joueur-tour ; schéma unique `FEATURES` / `TARGET` importable
 
 | Groupe | Features |
 |---|---|
-| Forme relative au field | `form_rel_short`, `form_rel_long`, `form_ewm`, `n_rounds_hist`, `days_since_last`, `is_new_player` |
+| Forme relative au field | `form_rel_short`, `form_rel_long`, `form_rel_xlong` (150 tours, niveau de fond), `form_ewm`, `form_ewm_slow`, `n_rounds_hist`, `days_since_last`, `is_new_player` |
 | Historique / difficulté parcours | `course_rel_mean`, `course_n_rounds`, `course_diff_mean`, `course_diff_std`, `is_new_course` |
 | Météo **prévue** | `fc_temp_mean`, `fc_humidity_mean`, `fc_precip_sum`, `fc_wind_mean`, `fc_gust_max` |
 | Contexte | `round`, `major`, `multi_course`, `yards`, `host_par` |

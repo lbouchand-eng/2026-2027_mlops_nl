@@ -8,8 +8,11 @@ from pga.features import FEATURES, FORBIDDEN, WEATHER, add_field_relative, build
 P = {
     "form_window_short": 2,
     "form_window_long": 4,
+    "form_window_xlong": 6,
     "form_ewm_halflife": 2,
+    "form_ewm_halflife_slow": 4,
     "form_min_periods": 1,
+    "form_min_periods_xlong": 1,
     "course_shrink_k": 0,
 }
 COLS = [c for c in FEATURES if c != "round"]
@@ -83,6 +86,8 @@ def test_form_uses_previous_rounds_only():
     # A au 1er tour 2021 : rel antérieurs = -2 (2020 R1), -2 (2020 R2) ; fenêtre courte = 2
     assert f.loc[("E2021", "A", 1), "form_rel_short"] == pytest.approx(-2.0)
     assert f.loc[("E2021", "A", 1), "n_rounds_hist"] == 2
+    assert f.loc[("E2021", "A", 1), "form_rel_xlong"] == pytest.approx(-2.0)
+    assert np.isnan(f.loc[("E2020", "A", 1), "form_ewm_slow"])
     # A au 2e tour 2021 : rel antérieurs -2 (2020 R2) et -2 (2021 R1)
     assert f.loc[("E2021", "A", 2), "form_rel_short"] == pytest.approx(-2.0)
     assert f.loc[("E2021", "A", 2), "days_since_last"] == pytest.approx(1.0)

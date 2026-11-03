@@ -79,12 +79,14 @@ def test_promotion_rule(mlflow_tmp, data_file):
     assert first["promoted"]
 
     # Modèle dégradé (1 itération) : ne doit pas détrôner le champion.
-    weak = T.run(df, P | {"model": P["model"] | {"max_iter": 1}}, YEARS, data_file)
+    weak_p = P | {"model": P["model"] | {"max_iter": 1}}
+    weak = T.run(df, weak_p, YEARS, data_file)
     assert not weak["promoted"]
     assert str(mlflow_tmp.get_model_version_by_alias("test-model", T.CHAMPION).version) == first["version"]
 
-    # Version forcée meilleure : devient champion, l'ancien passe en previous.
-    v3 = T.run(df, P, YEARS, data_file)["version"]
+    # Version non promue au run, puis déclarée meilleure : devient champion,
+    # l'ancien champion passe en previous.
+    v3 = T.run(df, weak_p, YEARS, data_file)["version"]
     promoted, _ = T.promote_if_better(mlflow_tmp, "test-model", v3, valid_mae=0.0, valid_skill=0.9)
     assert promoted
     assert str(mlflow_tmp.get_model_version_by_alias("test-model", T.CHAMPION).version) == v3

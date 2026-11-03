@@ -31,8 +31,11 @@ weather:
 features:
   form_window_short: 10     # nb de tours pour la forme courte
   form_window_long: 40      # nb de tours pour la forme longue
+  form_window_xlong: 150    # niveau de fond du joueur
   form_ewm_halflife: 15     # demi-vie (en tours) de la moyenne exponentielle
+  form_ewm_halflife_slow: 50
   form_min_periods: 3       # tours minimum avant de calculer une moyenne glissante
+  form_min_periods_xlong: 10
   course_shrink_k: 8        # pseudo-tours de rétrécissement de l'historique parcours vers 0
 
 split:

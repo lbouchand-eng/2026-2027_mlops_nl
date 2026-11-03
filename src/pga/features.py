@@ -20,7 +20,7 @@ KEYS = ["event_id", "player_id", "round"]
 TARGET = "to_par"
 META = ["event_name", "event_start", "tee_time_utc", "player_name", "course_id", "year", "split"]
 
-FORM = ["form_rel_short", "form_rel_long", "form_ewm", "n_rounds_hist", "days_since_last", "is_new_player"]
+FORM = ["form_rel_short", "form_rel_long", "form_rel_xlong", "form_ewm", "form_ewm_slow", "n_rounds_hist", "days_since_last", "is_new_player"]
 COURSE = ["course_rel_mean", "course_n_rounds", "course_diff_mean", "course_diff_std", "is_new_course"]
 WEATHER = ["fc_temp_mean", "fc_humidity_mean", "fc_precip_sum", "fc_wind_mean", "fc_gust_max"]
 CONTEXT = ["round", "major", "multi_course", "yards", "host_par"]
@@ -37,16 +37,22 @@ def add_field_relative(rounds: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def player_form(df: pd.DataFrame, short: int, long: int, halflife: float, min_periods: int) -> pd.DataFrame:
-    """Forme récente du joueur, calculée sur ses tours strictement antérieurs."""
+def player_form(df: pd.DataFrame, p: dict) -> pd.DataFrame:
+    """Forme du joueur, calculée sur ses tours strictement antérieurs.
+
+    Courte / longue / EWM = forme récente ; xlong / EWM lente = niveau de fond.
+    """
     df = df.sort_values(["tee_time_utc", "event_id", "round", "player_id"], kind="stable")
     g = df.groupby("player_id", sort=False)
     prev_rel = g["rel"].shift(1)
     gp = prev_rel.groupby(df["player_id"], sort=False)
     out = pd.DataFrame(index=df.index)
-    out["form_rel_short"] = gp.transform(lambda s: s.rolling(short, min_periods=min_periods).mean())
-    out["form_rel_long"] = gp.transform(lambda s: s.rolling(long, min_periods=min_periods).mean())
-    out["form_ewm"] = gp.transform(lambda s: s.ewm(halflife=halflife, ignore_na=True).mean())
+    mp, mpx = p["form_min_periods"], p["form_min_periods_xlong"]
+    out["form_rel_short"] = gp.transform(lambda s: s.rolling(p["form_window_short"], min_periods=mp).mean())
+    out["form_rel_long"] = gp.transform(lambda s: s.rolling(p["form_window_long"], min_periods=mp).mean())
+    out["form_rel_xlong"] = gp.transform(lambda s: s.rolling(p["form_window_xlong"], min_periods=mpx).mean())
+    out["form_ewm"] = gp.transform(lambda s: s.ewm(halflife=p["form_ewm_halflife"], ignore_na=True).mean())
+    out["form_ewm_slow"] = gp.transform(lambda s: s.ewm(halflife=p["form_ewm_halflife_slow"], ignore_na=True).mean())
     out["n_rounds_hist"] = g.cumcount()
     prev_tee = g["tee_time_utc"].shift(1)
     out["days_since_last"] = (df["tee_time_utc"] - prev_tee).dt.total_seconds() / 86400
@@ -110,7 +116,7 @@ def assign_split(year: pd.Series, split: dict) -> pd.Series:
 
 def build_features(rounds: pd.DataFrame, weather: pd.DataFrame, p: dict, split: dict) -> pd.DataFrame:
     df = add_field_relative(rounds.reset_index(drop=True))
-    form = player_form(df, p["form_window_short"], p["form_window_long"], p["form_ewm_halflife"], p["form_min_periods"])
+    form = player_form(df, p)
     course = course_history(df, p["course_shrink_k"])
     df = pd.concat([df, form, course], axis=1)
     df = df.merge(weather[KEYS + WEATHER], on=KEYS, how="left")
