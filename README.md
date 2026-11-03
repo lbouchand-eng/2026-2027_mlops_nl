@@ -10,6 +10,8 @@ historique sur le parcours et la difficulté du parcours (éditions passées uni
 | 2018-2022  | entraînement / référence (validation : 2022) |
 | 2023-2024  | période de drift                             |
 
+Architecture, répartition du travail et contrat API ↔ monitoring : [`docs/architecture.md`](docs/architecture.md).
+
 ## Métrique
 
 **MAE sur `to_par` (en coups)**, comparée à une baseline naïve (moyenne historique du
