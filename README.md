@@ -10,6 +10,12 @@ historique sur le parcours et la difficulté du parcours (éditions passées uni
 | 2021-2022  | entraînement / référence                     |
 | 2023-2024  | période de drift                             |
 
+## Métrique
+
+**MAE sur `to_par` (en coups)**, comparée à une baseline naïve (moyenne historique du
+parcours) via un score de skill `1 − MAE/MAE_baseline`. Justification, métriques
+secondaires et protocole : [`docs/metric.md`](docs/metric.md).
+
 ## Démarrage
 
 ```bash
