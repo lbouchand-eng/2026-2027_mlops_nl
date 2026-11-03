@@ -39,6 +39,7 @@ from pga.features import FEATURES, TARGET
 EXPERIMENT = "pga-score"
 CHAMPION, PREVIOUS = "champion", "previous"
 # Sérialisation skops (défaut MLflow 3) : classe interne du HGB à déclarer comme sûre.
+PIPELINE_OUTPUTS = ("dvc.lock", "reports")
 SKOPS_TRUSTED = ["sklearn.ensemble._hist_gradient_boosting.predictor.TreePredictor"]
 
 
@@ -128,7 +129,9 @@ def git_info(root: Path = ROOT) -> dict[str, str]:
         except (subprocess.CalledProcessError, FileNotFoundError):
             return "unknown"
 
-    status = run("status", "--porcelain", "--untracked-files=no")
+    # Fichiers écrits par `dvc repro` lui-même : ils ne rendent pas le code « sale »
+    # (les données sont tracées à part par data_hash).
+    status = run("status", "--porcelain", "--untracked-files=no", "--", ".", *(f":!{p}" for p in PIPELINE_OUTPUTS))
     return {
         "git_commit": run("rev-parse", "HEAD"),
         "git_branch": run("rev-parse", "--abbrev-ref", "HEAD"),

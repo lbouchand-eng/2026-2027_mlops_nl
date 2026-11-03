@@ -97,3 +97,22 @@ def test_negative_skill_never_promoted(mlflow_tmp, data_file):
     v = T.run(pd.read_parquet(data_file), P, YEARS, data_file, register=True)["version"]
     promoted, reason = T.promote_if_better(mlflow_tmp, "test-model", v, valid_mae=0.0, valid_skill=-0.1)
     assert not promoted and "baseline" in reason
+
+
+def test_git_dirty_ignores_pipeline_outputs(tmp_path):
+    import subprocess
+
+    def git(*a):
+        subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)
+
+    git("init", "-q")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+    (tmp_path / "code.py").write_text("a = 1\n")
+    (tmp_path / "dvc.lock").write_text("v1\n")
+    git("add", ".")
+    git("commit", "-qm", "init")
+    (tmp_path / "dvc.lock").write_text("v2\n")
+    assert T.git_info(tmp_path)["git_dirty"] == "false"
+    (tmp_path / "code.py").write_text("a = 2\n")
+    assert T.git_info(tmp_path)["git_dirty"] == "true"
