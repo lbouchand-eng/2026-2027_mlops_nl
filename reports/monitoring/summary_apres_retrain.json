@@ -1,0 +1,42 @@
+{
+  "status": "warning",
+  "reasons": [
+    "[warning] PSI form_rel_xlong = 0.32 > 0.21",
+    "[warning] PSI form_ewm = 0.11 > 0.10"
+  ],
+  "last_event": {
+    "event_id": "401693957",
+    "event_name": "PGA TOUR Q-School presented by Korn Ferry",
+    "event_start": "2024-12-12 05:00:00+00:00"
+  },
+  "model": {
+    "name": "pga-score-model",
+    "version": "4",
+    "valid_mae": 2.325879,
+    "event_bias_sd": 0.853388,
+    "event_bias_sd_source": "tag"
+  },
+  "signals": {
+    "psi_max": 0.3212,
+    "psi_ratio_max": 0.7592,
+    "bias": 0.3526,
+    "bias_z": 1.1688,
+    "mae": 2.4717,
+    "mae_ratio": 1.0627,
+    "n_events": 8.0
+  },
+  "psi_max_feature": "form_rel_xlong",
+  "history": {
+    "n_checks": 46,
+    "n_warning": 3,
+    "n_alert": 0,
+    "first_warning": "2024-01-04 05:00:00+00:00",
+    "first_alert": null
+  },
+  "mode": "replay:apres_retrain",
+  "label": "apres_retrain",
+  "inject": null,
+  "inject_since": null,
+  "mlflow_run_id": "5f6ede9cd15e4941900ea3b4a3dc9b0a",
+  "timeline": "reports/monitoring/timeline_apres_retrain.png"
+}

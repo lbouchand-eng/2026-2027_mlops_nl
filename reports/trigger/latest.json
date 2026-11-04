@@ -1,0 +1,18 @@
+{
+  "decision": {
+    "action": "none",
+    "reason": "performance dans les seuils",
+    "as_of": "2024-12-15",
+    "champion": "4",
+    "last_status": "warning",
+    "perf_levels": [
+      "ok",
+      "ok",
+      "ok"
+    ]
+  },
+  "outcome": {
+    "executed": false,
+    "operation_run_id": "9a30b5b2d9674ca8bb9100d66bf8ee7b"
+  }
+}
