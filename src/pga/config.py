@@ -30,3 +30,5 @@ METRICS_PATH = REPORTS / "metrics.json"
 MLARTIFACTS = ROOT / "mlartifacts"
 # Surchargeable par la variable d'environnement MLFLOW_TRACKING_URI (.env).
 MLFLOW_URI = f"sqlite:///{ROOT / 'mlflow.db'}"
+# Journal des prédictions de l'API (entrée du monitoring), surchargeable par PREDICTIONS_LOG.
+PREDICTIONS_LOG = DATA / "monitoring" / "predictions.parquet"
