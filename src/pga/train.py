@@ -178,11 +178,11 @@ def promote_if_better(client: MlflowClient, name: str, version: str, valid_mae: 
     return False, reason
 
 
-def setup_mlflow(uri: str, artifacts: Path = MLARTIFACTS) -> None:
+def setup_mlflow(uri: str, artifacts: Path = MLARTIFACTS, experiment: str = EXPERIMENT) -> None:
     mlflow.set_tracking_uri(uri)
-    if mlflow.get_experiment_by_name(EXPERIMENT) is None:
-        mlflow.create_experiment(EXPERIMENT, artifact_location=artifacts.resolve().as_uri())
-    mlflow.set_experiment(EXPERIMENT)
+    if mlflow.get_experiment_by_name(experiment) is None:
+        mlflow.create_experiment(experiment, artifact_location=artifacts.resolve().as_uri())
+    mlflow.set_experiment(experiment)
 
 
 def run(df: pd.DataFrame, p: dict, years: dict, data_path: Path, register: bool = True, run_name: str | None = None) -> dict:

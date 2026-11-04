@@ -56,3 +56,22 @@ train:
     max_leaf_nodes: 31
     min_samples_leaf: 200
     l2_regularization: 1.0
+
+monitor:
+  reference_years: [2018, 2022]   # = refit_years du modèle servi
+  window_events: 8                # fenêtre glissante (≈ 2 mois de saison)
+  psi_bins: 10
+  psi_warning: 0.10               # planchers ; seuils effectifs par feature dans
+  psi_alert: 0.25                 # reports/monitoring/calibration.json (commande calibrate)
+  calibration_quantile: 0.99      # warning = quantile 99 % du PSI naturel (fenêtres 2018-2022)
+  calibration_alert_margin: 1.5   # alert = 1,5 x PSI naturel max
+  # Features surveillées par PSI : niveau joueur et météo. Exclues : compteurs cumulés
+  # (n_rounds_hist, course_n_rounds) qui dérivent mécaniquement, et features constantes
+  # par tournoi (parcours, contexte) dont le PSI sur 8 tournois n'a pas de sens.
+  psi_features: [form_rel_short, form_rel_long, form_rel_xlong, form_ewm, form_ewm_slow,
+                 days_since_last, course_rel_mean, fc_temp_mean, fc_humidity_mean,
+                 fc_precip_sum, fc_wind_mean, fc_gust_max]
+  bias_z_warning: 2.0
+  bias_z_alert: 3.0
+  mae_ratio_alert: 1.10           # ≈ 3 erreurs-types de la MAE sur 8 tournois
+  fallback_event_bias_sd: 0.85    # si la version servie n'a pas le tag valid_event_bias_sd
