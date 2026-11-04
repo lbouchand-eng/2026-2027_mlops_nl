@@ -4,12 +4,12 @@
     "as_of": "2024-03-25",
     "event": "Valspar Championship",
     "action": "rollback",
-    "reason": "dégradation juste après la mise en service de v2 (2024-03-01) : biais +0.85 coup (z +2.8), MAE ratio 1.08, contrôles ['warning', 'warning', 'warning']",
+    "reason": "dégradation juste après la mise en service de v2 (2024-03-01) : biais +0.88 coup (z +2.9), MAE ratio 1.08, contrôles ['warning', 'warning', 'warning']",
     "tournaments_after_corruption": 4
   },
   "checks": 19,
   "n_alert": 15,
   "first_alert": "2024-03-28 04:00:00+00:00",
   "psi_alerts": 0,
-  "bias_window_max": 1.845
+  "bias_window_max": 1.943
 }

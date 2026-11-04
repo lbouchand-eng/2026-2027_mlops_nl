@@ -164,13 +164,13 @@ bash scripts/demo.sh                         # démo en direct, pause entre chaq
 Scénario : le 1er mars 2024, un réentraînement de routine se fait sur un backfill météo
 téléchargé en m/s au lieu de km/h (vent ÷ 3,6). La fenêtre de décision étant corrompue
 elle aussi, le challenger gagne la comparaison et devient champion. En production, sur des
-données saines, le PSI ne bouge pas, mais le biais monte à +0,85 coup en 4 tournois. Le
+données saines, le PSI ne bouge pas, mais le biais monte à +0,88 coup en 4 tournois. Le
 déclencheur choisit le **rollback** le 25 mars (dégradation juste après une mise en
 service), et le monitoring revient à ok (19 contrôles sur 19).
 
 La démo (`scripts/demo.sh`, ≈ 10 s sans les pauses) enchaîne : l'API sert la version
-corrompue, 3 442 prédictions de mars-avril 2024, `monitor check` → alerte (biais +1,65,
-z = 5,5), `trigger` → rollback et rechargement de l'API, mêmes requêtes → ok. Rapport :
+corrompue, 3 442 prédictions de mars-avril 2024, `monitor check` → alerte (biais +1,79,
+z = 5,9), `trigger` → rollback et rechargement de l'API, mêmes requêtes → ok. Rapport :
 `docs/incident.md`.
 
 ## Remote DVC (stockage local)
