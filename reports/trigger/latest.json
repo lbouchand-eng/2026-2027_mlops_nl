@@ -1,18 +1,47 @@
 {
   "decision": {
-    "action": "none",
-    "reason": "performance dans les seuils",
-    "as_of": "2024-12-15",
-    "champion": "4",
+    "action": "retrain",
+    "reason": "dérive confirmée : biais +0.65 coup (z +2.2), MAE ratio 0.99, contrôles ['warning', 'warning', 'warning']",
+    "as_of": "2024-02-05",
+    "champion": "1",
     "last_status": "warning",
     "perf_levels": [
-      "ok",
-      "ok",
-      "ok"
+      "warning",
+      "warning",
+      "warning"
     ]
   },
   "outcome": {
-    "executed": false,
-    "operation_run_id": "9a30b5b2d9674ca8bb9100d66bf8ee7b"
+    "executed": true,
+    "version": "2",
+    "promoted": true,
+    "reason": "challenger MAE 2.326 / biais +0.483 vs champion v1 MAE 2.362 / biais +0.625 sur 8 tournois",
+    "run_id": "0ab3fa6058574a269fd190f72297079c",
+    "challenger": {
+      "mae": 2.3258788634823278,
+      "rmse": 2.9264463513770087,
+      "bias": 0.48345966330728485,
+      "mae_baseline": 2.5456314739067283,
+      "skill": 0.08632538239604282,
+      "n": 3406.0,
+      "mae_r1": 2.2024622743483864,
+      "mae_r2": 2.3256991453106184,
+      "mae_r3": 2.51318222087584,
+      "mae_r4": 2.305577832751528
+    },
+    "champion": {
+      "mae": 2.3616712376156848,
+      "rmse": 2.9625680965109558,
+      "bias": 0.6248181972047194,
+      "mae_baseline": 2.5456314739067283,
+      "skill": 0.07226506985660552,
+      "n": 3406.0,
+      "mae_r1": 2.2270696557716976,
+      "mae_r2": 2.3895848232340455,
+      "mae_r3": 2.528969646961704,
+      "mae_r4": 2.337292725152299
+    },
+    "fit_until": "2023-11-09",
+    "operation_run_id": "3cb3cf35da9649d3a2f23a20133251c8"
   }
 }

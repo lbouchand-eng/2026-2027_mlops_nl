@@ -53,7 +53,7 @@ Testé en local (4 novembre 2026) : v2 → v1 → v2, l'API a suivi à chaque fo
 ```bash
 uv run python -m pga.trigger --dry-run          # décision seule
 uv run python -m pga.trigger                    # décide et agit
-uv run python -m pga.trigger --as-of 2024-02-02 # simulation à une date passée
+uv run python -m pga.trigger --as-of 2024-02-05 # simulation à une date passée
 ```
 
 Le déclencheur recalcule le monitoring « as-of » sur les 3 derniers contrôles, puis :
@@ -65,17 +65,22 @@ Le déclencheur recalcule le monitoring « as-of » sur les 3 derniers contrôle
 | alerte PSI sur une entrée | **incident de données** : pas de réentraînement, vérifier la source | 20 |
 | biais/MAE dégradés, champion en service depuis moins de 60 j | **rollback** (le dernier déploiement est suspect) | 30 |
 
-Comparaison juste : la fenêtre de décision est formée des 8 derniers tournois avant la date.
+Comparaison juste : la fenêtre de décision est formée des 8 derniers tournois **terminés**
+à la date (dernier départ + 6 h) : un tournoi en cours apporterait les scores de tours pas
+encore joués.
 Le challenger est entraîné sur tout ce qui précède, et **champion et challenger sont
 évalués sur cette même fenêtre**. Promotion si la MAE est meilleure et le |biais| pas pire.
 Trace : run `retrain as-of …` dans `pga-score`, décision dans `pga-operations`,
 `reports/trigger/latest.json` et une archive par décision exécutée.
 
-Résultat réel (`reports/trigger/2024-02-02_retrain.json`) : au 2 février 2024, après trois
-warnings de biais consécutifs (z = 2,0 à 2,2), le challenger v4 (données jusqu'au
-4 janvier 2024) bat la v2 sur les mêmes 8 tournois : MAE 2,326 contre 2,362, biais +0,48
-contre +0,63. Il est promu et la v2 passe en `previous`. Ensuite, aucune action jusqu'à fin
-2024 : le biais moyen 2024 passe de +0,22 à +0,16 coup.
+Résultat réel (`reports/trigger/2024-02-05_retrain.json`) : le lundi 5 février 2024, après
+trois warnings de biais consécutifs (z = 2,0 à 2,2, le dernier sur l'AT&T Pebble Beach
+Pro-Am terminé le 3 février), le challenger (données antérieures au 9 novembre 2023, début de
+la fenêtre de décision) bat le champion sur les mêmes 8 tournois : MAE 2,326 contre 2,362,
+biais +0,48 contre +0,63. Il est promu et l'ancien champion passe en `previous`. Ensuite,
+aucune action jusqu'à fin 2024 : le biais moyen 2024 passe de +0,22 à +0,16 coup.
+Au 2 février, Pebble Beach est encore en cours : le déclencheur ne voit que deux warnings et
+ne fait rien (`test_event_in_progress_is_not_used`).
 
 Limite connue : si les données de la fenêtre de décision sont corrompues comme celles de
 l'entraînement (backfill erroné), le challenger corrompu peut gagner la comparaison

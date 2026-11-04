@@ -81,6 +81,27 @@ def test_decision_window_is_excluded_from_training(setup):
     assert run.data.tags["compared_to"] == f"v{setup['champ'].version}"
 
 
+def test_event_in_progress_is_not_used(setup):
+    """Un tournoi commencé avant `as_of` mais pas terminé n'entre ni dans le monitoring ni
+    dans la fenêtre de décision : ses derniers tours ne sont pas encore joués."""
+    df = setup["df"]
+    starts = df.groupby("event_id")["event_start"].min()
+    in_progress, start = starts.idxmax(), starts.max()
+    as_of = start + pd.Timedelta(days=1)  # lendemain du 1er tour
+    assert in_progress not in TR.event_order(df, as_of).index
+    ids, _ = TR.decision_window(df, as_of, MP["window_events"])
+    assert in_progress not in ids
+    assert in_progress in TR.event_order(df, start + pd.Timedelta(days=4)).index
+
+
+def test_event_end_uses_last_tee_time():
+    df = pd.DataFrame({"event_id": ["E", "E"], "event_start": pd.Timestamp("2024-02-01", tz="UTC"),
+                       "tee_time_utc": pd.to_datetime(["2024-02-01 17:00", "2024-02-03 19:00"], utc=True)})
+    assert TR.event_end(df)["E"] == pd.Timestamp("2024-02-04 01:00", tz="UTC")
+    assert TR.event_order(df, pd.Timestamp("2024-02-02 23:59", tz="UTC")).empty  # cas Pebble Beach 2024
+    assert list(TR.event_order(df, pd.Timestamp("2024-02-05", tz="UTC")).index) == ["E"]
+
+
 def test_better_challenger_is_promoted_with_as_of_date(setup):
     # tolérance large sur le biais : on teste ici la promotion sur la MAE
     res = TR.retrain(setup["df"], AS_OF, setup["champ"], P, MP, PT | {"bias_tolerance": 5.0}, setup["path"])

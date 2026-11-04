@@ -146,7 +146,7 @@ uv run python -m pga.rollback --reason "..." --api-url http://127.0.0.1:8000   #
 
 ```bash
 uv run python -m pga.trigger --dry-run                 # rien (0) / réentraînement (10) / incident de données (20) / rollback (30)
-uv run python -m pga.trigger --as-of 2024-02-02        # simulation : réentraînement après la dérive de janvier 2024
+uv run python -m pga.trigger --as-of 2024-02-05        # simulation : réentraînement après la dérive de janvier 2024
 ```
 
 Champion et challenger sont comparés sur les 8 mêmes tournois récents. Une dégradation
