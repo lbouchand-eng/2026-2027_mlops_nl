@@ -154,6 +154,27 @@ def git_info(root: Path = ROOT) -> dict[str, str]:
 
 # --- registry ----------------------------------------------------------------------------
 
+def set_champion(client: MlflowClient, name: str, version: str, promoted_at: str | None = None) -> str | None:
+    """`champion` -> `version`, l'ancien champion -> `previous`. Renvoie l'ancien champion.
+
+    `promoted_at` : date de mise en service (simulation « as-of ») ; défaut : maintenant.
+    """
+    try:
+        old = str(client.get_model_version_by_alias(name, CHAMPION).version)
+    except mlflow.exceptions.MlflowException:
+        old = None
+    if old == str(version):
+        return old
+    if old:
+        client.set_registered_model_alias(name, PREVIOUS, old)
+        client.set_model_version_tag(name, old, "status", "previous")
+    client.set_registered_model_alias(name, CHAMPION, str(version))
+    client.set_model_version_tag(name, str(version), "status", "champion")
+    client.set_model_version_tag(name, str(version), "promoted_at",
+                                 promoted_at or pd.Timestamp.now(tz="UTC").isoformat(timespec="seconds"))
+    return old
+
+
 def promote_if_better(client: MlflowClient, name: str, version: str, valid_mae: float, valid_skill: float) -> tuple[bool, str]:
     """Applique la règle de promotion ; renvoie (promu, raison)."""
     client.set_model_version_tag(name, version, "valid_mae", f"{valid_mae:.6f}")
@@ -167,11 +188,8 @@ def promote_if_better(client: MlflowClient, name: str, version: str, valid_mae: 
             champ = None
         champ_mae = float(champ.tags.get("valid_mae", "inf")) if champ else float("inf")
         if valid_mae < champ_mae:
-            if champ:
-                client.set_registered_model_alias(name, PREVIOUS, champ.version)
-            client.set_registered_model_alias(name, CHAMPION, version)
+            set_champion(client, name, version)
             reason = f"MAE {valid_mae:.4f} < champion {champ_mae:.4f}" if champ else "premier champion"
-            client.set_model_version_tag(name, version, "status", "champion")
             return True, reason
         reason = f"MAE {valid_mae:.4f} >= champion v{champ.version} {champ_mae:.4f}"
     client.set_model_version_tag(name, version, "status", "candidate")
@@ -185,48 +203,55 @@ def setup_mlflow(uri: str, artifacts: Path = MLARTIFACTS, experiment: str = EXPE
     mlflow.set_experiment(experiment)
 
 
+def log_model_run(model, X_example: pd.DataFrame, params_: dict, metrics: dict, data_path: Path,
+                  name: str, register: bool, tags: dict | None = None) -> tuple[str, str | None]:
+    """Logue un modèle entraîné dans le run MLflow actif (params, métriques, traçabilité).
+
+    Renvoie (run_id, version enregistrée ou None).
+    """
+    run = mlflow.active_run()
+    mlflow.log_params(params_)
+    mlflow.set_tags(
+        {
+            **git_info(),
+            "data_path": str(data_path.resolve().relative_to(ROOT)) if data_path.resolve().is_relative_to(ROOT) else str(data_path),
+            "data_hash": data_hash(data_path),
+            "dvc_features_md5": dvc_lock_md5(data_path) or "absent",
+            **(tags or {}),
+        }
+    )
+    mlflow.log_metrics(metrics)
+    info = mlflow.sklearn.log_model(
+        model,
+        name="model",
+        signature=infer_signature(X_example, model.predict(X_example)),
+        input_example=X_example,
+        skops_trusted_types=SKOPS_TRUSTED,
+        registered_model_name=name if register else None,
+    )
+    return run.info.run_id, (str(info.registered_model_version) if register else None)
+
+
+def model_params(p: dict) -> dict:
+    return {f"model_{k}": v for k, v in p["model"].items()} | {
+        "random_state": p["random_state"], "n_features": len(FEATURES), "features": ",".join(FEATURES)}
+
+
 def run(df: pd.DataFrame, p: dict, years: dict, data_path: Path, register: bool = True, run_name: str | None = None) -> dict:
     model, metrics = train(df, p, years["train"], years["valid"], years["refit"], p.get("eval_years", ()))
     name = p["registered_model_name"]
-    with mlflow.start_run(run_name=run_name) as active:
-        mlflow.log_params({f"model_{k}": v for k, v in p["model"].items()})
-        mlflow.log_params(
-            {
-                "random_state": p["random_state"],
-                "train_years": f"{years['train'][0]}-{years['train'][1]}",
-                "valid_years": f"{years['valid'][0]}-{years['valid'][1]}",
-                "refit_years": f"{years['refit'][0]}-{years['refit'][1]}",
-                "n_features": len(FEATURES),
-                "features": ",".join(FEATURES),
-            }
-        )
-        mlflow.set_tags(
-            {
-                **git_info(),
-                "data_path": str(data_path.resolve().relative_to(ROOT)) if data_path.resolve().is_relative_to(ROOT) else str(data_path),
-                "data_hash": data_hash(data_path),
-                "dvc_features_md5": dvc_lock_md5(data_path) or "absent",
-            }
-        )
-        mlflow.log_metrics(metrics)
+    with mlflow.start_run(run_name=run_name):
+        params_ = model_params(p) | {f"{k}_years": f"{v[0]}-{v[1]}" for k, v in years.items()}
         X_ex = to_xy(select(df, years["refit"]))[0].head(5)
-        info = mlflow.sklearn.log_model(
-            model,
-            name="model",
-            signature=infer_signature(X_ex, model.predict(X_ex)),
-            input_example=X_ex,
-            skops_trusted_types=SKOPS_TRUSTED,
-            registered_model_name=name if register else None,
-        )
-        result = {"run_id": active.info.run_id, "metrics": metrics, "promoted": False, "version": None}
+        run_id, version = log_model_run(model, X_ex, params_, metrics, data_path, name, register)
+        result = {"run_id": run_id, "metrics": metrics, "promoted": False, "version": version}
         if register:
-            version = str(info.registered_model_version)
             client = MlflowClient()
             if "valid_event_bias_sd" in metrics:
                 client.set_model_version_tag(name, version, "valid_event_bias_sd", f"{metrics['valid_event_bias_sd']:.6f}")
             promoted, reason = promote_if_better(client, name, version, metrics["valid_mae"], metrics["valid_skill"])
             mlflow.set_tags({"registered_version": version, "promoted": str(promoted).lower(), "promotion_reason": reason})
-            result |= {"promoted": promoted, "version": version, "reason": reason}
+            result |= {"promoted": promoted, "reason": reason}
     return result
 
 
