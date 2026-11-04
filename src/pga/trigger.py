@@ -208,8 +208,10 @@ def run_trigger(as_of: pd.Timestamp | None = None, dry_run: bool = False, api_ur
     outcome["operation_run_id"] = log_operation(decision, outcome)
 
     TRIGGER_DIR.mkdir(parents=True, exist_ok=True)
-    (TRIGGER_DIR / "latest.json").write_text(json.dumps({"decision": asdict(decision), "outcome": outcome},
-                                                        indent=2, ensure_ascii=False, default=str) + "\n")
+    text = json.dumps({"decision": asdict(decision), "outcome": outcome}, indent=2, ensure_ascii=False, default=str) + "\n"
+    (TRIGGER_DIR / "latest.json").write_text(text)
+    if outcome.get("executed"):  # archive des décisions réellement exécutées
+        (TRIGGER_DIR / f"{decision.as_of}_{decision.action}.json").write_text(text)
     return decision, outcome
 
 
