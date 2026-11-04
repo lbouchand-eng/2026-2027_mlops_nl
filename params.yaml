@@ -76,3 +76,9 @@ monitor:
   bias_z_alert: 3.0
   mae_ratio_alert: 1.10           # ≈ 3 erreurs-types de la MAE sur 8 tournois
   fallback_event_bias_sd: 0.85    # si la version servie n'a pas le tag valid_event_bias_sd
+
+trigger:
+  consecutive_checks: 3           # contrôles de performance consécutifs hors seuil -> dégradation confirmée
+  recent_promotion_days: 60       # champion mis en service depuis moins de 60 j : dégradation -> rollback
+  train_start_year: 2018          # début des données du challenger
+  bias_tolerance: 0.0             # |biais| challenger <= |biais| champion + tolérance

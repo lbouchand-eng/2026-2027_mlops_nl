@@ -48,19 +48,43 @@ Vérifications après un rollback :
 
 Testé en local (4 novembre 2026) : v2 → v1 → v2, l'API a suivi à chaque fois.
 
-## 4. Réentraînement
-
-On décale toutes les fenêtres d'un an, pour que la validation porte sur la période qui a
-dérivé :
+## 4. Réentraînement : le déclencheur
 
 ```bash
-uv run python -m pga.train --train-years 2018 2022 --valid-years 2023 2023 --refit-years 2018 2023 \
-  --run-name "retrain après dérive 2023"
+uv run python -m pga.trigger --dry-run          # décision seule
+uv run python -m pga.trigger                    # décide et agit
+uv run python -m pga.trigger --as-of 2024-02-05 # simulation à une date passée
 ```
 
-Attention : seul `--refit-years` ne suffit pas. La validation resterait 2022, avec la même
-MAE, et le nouveau modèle ne serait jamais promu. Autre limite : la règle de promotion
-actuelle compare la MAE de validation du challenger (2023) à celle du champion (2022),
-donc sur deux années différentes. Le déclencheur de réentraînement (étape suivante)
-évaluera les deux modèles **sur la même fenêtre récente** avant de décider. Après une
-promotion : `POST /reload`.
+Le déclencheur recalcule le monitoring « as-of » sur les 3 derniers contrôles, puis :
+
+| Constat | Action | Code |
+|---|---|---|
+| rien d'anormal | rien | 0 |
+| biais/MAE dégradés (alerte, ou 3 contrôles consécutifs hors seuil), champion en service depuis plus de 60 j | **réentraînement** | 10 |
+| alerte PSI sur une entrée | **incident de données** : pas de réentraînement, vérifier la source | 20 |
+| biais/MAE dégradés, champion en service depuis moins de 60 j | **rollback** (le dernier déploiement est suspect) | 30 |
+
+Comparaison juste : la fenêtre de décision est formée des 8 derniers tournois **terminés**
+à la date (dernier départ + 6 h) : un tournoi en cours apporterait les scores de tours pas
+encore joués.
+Le challenger est entraîné sur tout ce qui précède, et **champion et challenger sont
+évalués sur cette même fenêtre**. Promotion si la MAE est meilleure et le |biais| pas pire.
+Trace : run `retrain as-of …` dans `pga-score`, décision dans `pga-operations`,
+`reports/trigger/latest.json` et une archive par décision exécutée.
+
+Résultat réel (`reports/trigger/2024-02-05_retrain.json`) : le lundi 5 février 2024, après
+trois warnings de biais consécutifs (z = 2,0 à 2,2, le dernier sur l'AT&T Pebble Beach
+Pro-Am terminé le 3 février), le challenger (données antérieures au 9 novembre 2023, début de
+la fenêtre de décision) bat le champion sur les mêmes 8 tournois : MAE 2,326 contre 2,362,
+biais +0,48 contre +0,63. Il est promu et l'ancien champion passe en `previous`. Ensuite,
+aucune action jusqu'à fin 2024 : le biais moyen 2024 passe de +0,22 à +0,16 coup.
+Au 2 février, Pebble Beach est encore en cours : le déclencheur ne voit que deux warnings et
+ne fait rien (`test_event_in_progress_is_not_used`).
+
+Limite connue : si les données de la fenêtre de décision sont corrompues comme celles de
+l'entraînement (backfill erroné), le challenger corrompu peut gagner la comparaison
+(`tests/test_trigger.py::test_corrupted_backfill_fools_the_comparison`). Seul le
+monitoring en production, sur des données saines, le détecte ; la règle « dégradation peu
+après une mise en service → rollback » prend alors le relais. C'est le scénario de
+l'incident simulé.

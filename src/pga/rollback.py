@@ -22,6 +22,7 @@ from mlflow.exceptions import MlflowException
 from mlflow.tracking import MlflowClient
 
 from pga.config import MLFLOW_URI, ROOT, params
+from pga.train import set_champion
 
 EXPERIMENT = "pga-operations"
 CHAMPION, PREVIOUS = "champion", "previous"
@@ -60,13 +61,10 @@ def rollback(client: MlflowClient, name: str, to: str | None = None, reason: str
     except MlflowException as exc:
         raise RollbackError(f"version v{target} introuvable pour {name}") from exc
 
-    client.set_registered_model_alias(name, CHAMPION, target)
-    client.set_registered_model_alias(name, PREVIOUS, current)
     now = pd.Timestamp.now(tz="UTC").isoformat(timespec="seconds")
-    for k, v in {"rolled_back_from": current, "rolled_back_at": now, "rollback_reason": reason or "non précisée",
-                 "status": "champion"}.items():
+    set_champion(client, name, target, promoted_at=now)  # champion <- cible, previous <- ancien
+    for k, v in {"rolled_back_from": current, "rolled_back_at": now, "rollback_reason": reason or "non précisée"}.items():
         client.set_model_version_tag(name, target, k, v)
-    client.set_model_version_tag(name, current, "status", "previous")
     return RollbackResult(name, current, target, reason)
 
 

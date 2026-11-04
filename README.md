@@ -142,6 +142,17 @@ uv run python -m pga.rollback --reason "..." --api-url http://127.0.0.1:8000   #
 - Méthode, seuils et résultats : [`docs/monitoring.md`](docs/monitoring.md) ; quoi faire en
   cas d'alerte : [`docs/runbook.md`](docs/runbook.md).
 
+## Déclencheur de réentraînement (`trigger.py`)
+
+```bash
+uv run python -m pga.trigger --dry-run                 # rien (0) / réentraînement (10) / incident de données (20) / rollback (30)
+uv run python -m pga.trigger --as-of 2024-02-05        # simulation : réentraînement après la dérive de janvier 2024
+```
+
+Champion et challenger sont comparés sur les 8 mêmes tournois récents. Une dégradation
+peu après une mise en service déclenche un rollback, une alerte PSI ne déclenche jamais
+de réentraînement. Détails et résultats : [`docs/runbook.md`](docs/runbook.md).
+
 ## Remote DVC (stockage local)
 
 Le remote par défaut `localstore` est un dossier **à côté du dépôt** :
