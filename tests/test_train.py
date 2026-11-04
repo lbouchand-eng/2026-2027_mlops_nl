@@ -116,3 +116,19 @@ def test_git_dirty_ignores_pipeline_outputs(tmp_path):
     assert T.git_info(tmp_path)["git_dirty"] == "false"
     (tmp_path / "code.py").write_text("a = 2\n")
     assert T.git_info(tmp_path)["git_dirty"] == "true"
+
+
+def test_event_bias_sd_logged_and_tagged(mlflow_tmp, tmp_path):
+    df = make_features()
+    df["event_id"] = (df.index // 15).astype(str)  # 10 tournois par année
+    path = tmp_path / "f.parquet"
+    df.to_parquet(path)
+    res = T.run(df, P, YEARS, path)
+    sd = res["metrics"]["valid_event_bias_sd"]
+    assert sd > 0
+    v = mlflow_tmp.get_model_version("test-model", res["version"])
+    assert float(v.tags["valid_event_bias_sd"]) == pytest.approx(sd, rel=1e-5)
+
+
+def test_event_bias_sd_value():
+    assert T.event_bias_sd(["a", "a", "b", "b"], [1, 1, -1, -1]) == pytest.approx(np.std([1, -1], ddof=1))

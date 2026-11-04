@@ -78,6 +78,16 @@ def evaluate(y, pred, base, rounds) -> dict[str, float]:
     return out
 
 
+def event_bias_sd(event_ids, err) -> float:
+    """Écart-type du biais moyen par tournoi : bruit de référence du monitoring.
+
+    Tout le field d'un tournoi partage la météo et le réglage du parcours : les erreurs
+    sont corrélées au sein d'un tournoi, l'unité indépendante est le tournoi.
+    """
+    by_event = pd.Series(np.asarray(err, dtype=float)).groupby(np.asarray(event_ids)).mean()
+    return float(by_event.std(ddof=1)) if len(by_event) > 1 else float("nan")
+
+
 def make_model(p: dict) -> HistGradientBoostingRegressor:
     return HistGradientBoostingRegressor(loss="absolute_error", random_state=p["random_state"], **p["model"])
 
@@ -88,7 +98,10 @@ def train(df: pd.DataFrame, p: dict, train_years, valid_years, refit_years, eval
     if tr.empty or va.empty:
         raise ValueError(f"fenêtre vide : train={train_years} ({len(tr)}), valid={valid_years} ({len(va)})")
     model = make_model(p).fit(*to_xy(tr))
-    metrics = {f"valid_{k}": v for k, v in evaluate(va[TARGET], model.predict(to_xy(va)[0]), baseline(va), va["round"]).items()}
+    valid_pred = model.predict(to_xy(va)[0])
+    metrics = {f"valid_{k}": v for k, v in evaluate(va[TARGET], valid_pred, baseline(va), va["round"]).items()}
+    if "event_id" in va:
+        metrics["valid_event_bias_sd"] = event_bias_sd(va["event_id"], valid_pred - va[TARGET].to_numpy())
 
     final = make_model(p).fit(*to_xy(select(df, refit_years)))
     for year in eval_years:
@@ -208,7 +221,10 @@ def run(df: pd.DataFrame, p: dict, years: dict, data_path: Path, register: bool 
         result = {"run_id": active.info.run_id, "metrics": metrics, "promoted": False, "version": None}
         if register:
             version = str(info.registered_model_version)
-            promoted, reason = promote_if_better(MlflowClient(), name, version, metrics["valid_mae"], metrics["valid_skill"])
+            client = MlflowClient()
+            if "valid_event_bias_sd" in metrics:
+                client.set_model_version_tag(name, version, "valid_event_bias_sd", f"{metrics['valid_event_bias_sd']:.6f}")
+            promoted, reason = promote_if_better(client, name, version, metrics["valid_mae"], metrics["valid_skill"])
             mlflow.set_tags({"registered_version": version, "promoted": str(promoted).lower(), "promotion_reason": reason})
             result |= {"promoted": promoted, "version": version, "reason": reason}
     return result
