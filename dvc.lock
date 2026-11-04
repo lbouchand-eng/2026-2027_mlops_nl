@@ -189,8 +189,8 @@ stages:
       size: 9920370
     - path: src/pga/train.py
       hash: md5
-      md5: 56e5fa1d5f4073fd8130c88686f4433b
-      size: 10813
+      md5: 24b28da9d9c7bc8ae120b7bad31e23f9
+      size: 11927
     params:
       params.yaml:
         train:
@@ -217,5 +217,5 @@ stages:
     outs:
     - path: reports/metrics.json
       hash: md5
-      md5: 65d22f673adef9fd697a35277964c71e
-      size: 845
+      md5: d21f44367b638e74a47f62d3689d09e9
+      size: 878
