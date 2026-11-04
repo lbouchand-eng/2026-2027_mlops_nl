@@ -100,6 +100,27 @@ uv run mlflow ui --backend-store-uri "sqlite:///mlflow.db"   # http://127.0.0.1:
   URI surchargeable via `MLFLOW_TRACKING_URI` dans `.env` (voir `.env.example`).
   Chargement : `mlflow.pyfunc.load_model("models:/pga-score-model@champion")`.
 
+## API (`api.py`)
+
+```bash
+uv run uvicorn pga.api:app --reload          # http://127.0.0.1:8000/docs (Swagger)
+curl -s localhost:8000/health
+curl -s -X POST localhost:8000/predict -H 'content-type: application/json' \
+  -d '{"rows":[{"event_id":"401580344","player_id":"9478","round":1,"form_ewm":-0.8,"course_diff_mean":0.4,"fc_wind_mean":14.2}]}'
+curl -s -X POST localhost:8000/reload        # après un rollback ou une promotion
+```
+
+- Sert `models:/pga-score-model@champion`, chargé **par numéro de version** : la version
+  renvoyée par `/health` et `/predict` est celle qui a prédit.
+- Entrées validées par Pydantic à partir de `pga.features.FEATURES` : feature absente ou
+  `null` → NaN ; colonne inconnue, type invalide, tour hors 1-4 → 422 ; pas de modèle → 503.
+- `/reload` relit l'alias sans redémarrer ; en cas d'échec, l'ancien modèle reste servi.
+- Chaque prédiction est ajoutée à `data/monitoring/predictions.parquet` (variable
+  `PREDICTIONS_LOG`), relu par le monitoring. Contrat complet : `docs/architecture.md`.
+- Tests d'intégration (`tests/test_api.py`) : vrai modèle entraîné dans un MLflow
+  temporaire, vérification de la version servie, du journal, des 422/503 et du
+  rechargement après déplacement de l'alias.
+
 ## Remote DVC (stockage local)
 
 Le remote par défaut `localstore` est un dossier **à côté du dépôt** :
