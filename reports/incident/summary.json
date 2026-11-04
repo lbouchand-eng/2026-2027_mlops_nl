@@ -1,0 +1,72 @@
+{
+  "scenario": "backfill vent en m/s (÷3,6) sur tout l'historique",
+  "corrupted_at": "2024-03-01",
+  "steps": {
+    "1_setup": {
+      "champion": "1",
+      "valid_mae": 2.379929047168928,
+      "promoted_at": "2023-01-01 (mise en service simulée)"
+    },
+    "2_corrupt": {
+      "date": "2024-03-01",
+      "challenger": "2",
+      "promoted": true,
+      "reason": "challenger MAE 2.261 / biais +0.045 vs champion v1 MAE 2.316 / biais -0.285 sur 8 tournois",
+      "challenger_metrics": {
+        "mae": 2.261295321837477,
+        "rmse": 2.865180656451864,
+        "bias": 0.0454760874333916,
+        "mae_baseline": 2.4972529614708083,
+        "skill": 0.09448687949272028,
+        "n": 2959.0,
+        "mae_r1": 2.2006467188120333,
+        "mae_r2": 2.1720042011766987,
+        "mae_r3": 2.5172208565341347,
+        "mae_r4": 2.2060566896735203
+      },
+      "champion_metrics": {
+        "mae": 2.3157412044980696,
+        "rmse": 2.943093807991196,
+        "bias": -0.28509192579773723,
+        "mae_baseline": 2.4972529614708083,
+        "skill": 0.07268456971448889,
+        "n": 2959.0,
+        "mae_r1": 2.31019575199206,
+        "mae_r2": 2.177097308214086,
+        "mae_r3": 2.5577785017026993,
+        "mae_r4": 2.2679040402589807
+      },
+      "data_transform": "backfill vent en m/s (÷3,6) sur tout l'historique"
+    },
+    "3_detect": {
+      "champion": "2",
+      "first_reaction": {
+        "as_of": "2024-03-25",
+        "event": "Valspar Championship",
+        "action": "rollback",
+        "reason": "dégradation juste après la mise en service de v2 (2024-03-01) : biais +0.88 coup (z +2.9), MAE ratio 1.08, contrôles ['warning', 'warning', 'warning']",
+        "tournaments_after_corruption": 4
+      },
+      "checks": 19,
+      "n_alert": 15,
+      "first_alert": "2024-03-28 04:00:00+00:00",
+      "psi_alerts": 0,
+      "bias_window_max": 1.943
+    },
+    "4_rollback": {
+      "as_of": "2024-03-25",
+      "from": "2",
+      "to": "1",
+      "trace": "6b1aed0f4c9d4b1d8c3e5a7c0b07a1a6"
+    },
+    "5_recover": {
+      "champion": "1",
+      "checks": 19,
+      "statuses": {
+        "ok": 19
+      },
+      "bias_window_max": 0.484,
+      "bias_z_max": 1.6
+    }
+  }
+}
