@@ -43,7 +43,7 @@ from pga.train import baseline, evaluate, log_model_run, make_model, model_param
 
 OPERATIONS = "pga-operations"
 CODES = {"none": 0, "retrain": 10, "data_incident": 20, "rollback": 30}
-TRIGGER_DIR = REPORTS / "trigger"
+TRIGGER_DIR = Path(os.environ.get("PGA_TRIGGER_DIR", REPORTS / "trigger"))  # surchargeable (démo)
 
 
 @dataclass

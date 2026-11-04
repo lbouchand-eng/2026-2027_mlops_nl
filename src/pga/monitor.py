@@ -35,7 +35,7 @@ from pga.config import FEATURES_PATH, MLFLOW_URI, PREDICTIONS_LOG, REPORTS, ROOT
 from pga.features import FEATURES, TARGET
 
 EXPERIMENT = "pga-monitoring"
-MONITORING = REPORTS / "monitoring"
+MONITORING = Path(os.environ.get("PGA_MONITORING_DIR", REPORTS / "monitoring"))  # surchargeable (démo)
 LEVELS = {"ok": 0, "warning": 1, "alert": 2}
 KEYS = ["event_id", "player_id", "round"]
 
@@ -334,7 +334,7 @@ def plot_timeline(timeline: pd.DataFrame, p: dict, path: Path, title: str, since
 
 # --- commandes -------------------------------------------------------------------------------
 
-CALIBRATION = MONITORING / "calibration.json"
+CALIBRATION = REPORTS / "monitoring" / "calibration.json"
 
 
 def load_thresholds(path: Path | None = None) -> dict[str, dict[str, float]]:
