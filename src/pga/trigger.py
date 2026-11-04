@@ -1,6 +1,6 @@
 """Déclencheur : décide, à une date donnée, entre ne rien faire, réentraîner ou revenir en arrière.
 
-Le monitoring est recalculé « as-of » (uniquement avec les tournois joués avant la date)
+Le monitoring est recalculé « as-of » (uniquement avec les tournois terminés à la date)
 sur les `consecutive_checks` derniers contrôles, puis :
 
 | Constat                                                       | Action          | Code |
@@ -44,6 +44,8 @@ from pga.train import baseline, evaluate, log_model_run, make_model, model_param
 OPERATIONS = "pga-operations"
 CODES = {"none": 0, "retrain": 10, "data_incident": 20, "rollback": 30}
 TRIGGER_DIR = REPORTS / "trigger"
+ROUND_HOURS = 6   # un tour dure ≈ 5 h : score connu ≈ 6 h après le dernier départ
+EVENT_DAYS = 4    # fin d'un tournoi sans heures de départ : début + 4 jours
 
 
 @dataclass
@@ -90,8 +92,20 @@ def decide(timeline: pd.DataFrame, as_of: pd.Timestamp, promoted_at: pd.Timestam
 
 # --- monitoring as-of ---------------------------------------------------------------------------
 
+def event_end(df: pd.DataFrame) -> pd.Series:
+    """Fin de chaque tournoi : dernier départ + durée d'un tour (début + 4 j si départs inconnus)."""
+    start = df.groupby("event_id")["event_start"].min()
+    fallback = start + pd.Timedelta(days=EVENT_DAYS)
+    if "tee_time_utc" not in df:
+        return fallback
+    return (df.groupby("event_id")["tee_time_utc"].max() + pd.Timedelta(hours=ROUND_HOURS)).fillna(fallback)
+
+
 def event_order(df: pd.DataFrame, as_of: pd.Timestamp) -> pd.Series:
-    return df[df["event_start"] <= as_of].groupby("event_id")["event_start"].min().sort_values()
+    """Tournois **terminés** à `as_of`, par date de début : un tournoi en cours apporterait
+    les scores de tours pas encore joués (fuite)."""
+    start = df.groupby("event_id")["event_start"].min()
+    return start[event_end(df) <= as_of].sort_values()
 
 
 def monitoring_as_of(df: pd.DataFrame, as_of: pd.Timestamp, champ: M.Champion, pm: dict, k: int) -> pd.DataFrame:
@@ -187,7 +201,7 @@ def run_trigger(as_of: pd.Timestamp | None = None, dry_run: bool = False, api_ur
     pm, pt, p_train = all_p["monitor"], all_p["trigger"], all_p["train"]
     data_path = data_path or FEATURES_PATH
     df = pd.read_parquet(data_path) if df is None else df
-    as_of = as_of or df["event_start"].max()
+    as_of = as_of or event_end(df).max()
     client = MlflowClient()
     champ = M.champion_info(client, p_train["registered_model_name"], pm["fallback_event_bias_sd"])
     promoted_at = parse_ts(client.get_model_version(champ.name, champ.version).tags.get("promoted_at"))
