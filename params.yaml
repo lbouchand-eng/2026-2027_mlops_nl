@@ -60,6 +60,7 @@ train:
 monitor:
   reference_years: [2018, 2022]   # = refit_years du modèle servi
   window_events: 8                # fenêtre glissante (≈ 2 mois de saison)
+  min_rows: 500                   # en dessous : signaux non évalués (journal court, scores absents)
   psi_bins: 10
   psi_warning: 0.10               # planchers ; seuils effectifs par feature dans
   psi_alert: 0.25                 # reports/monitoring/calibration.json (commande calibrate)

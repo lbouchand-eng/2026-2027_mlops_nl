@@ -15,6 +15,7 @@ from test_train import P, YEARS, make_features
 MP = {
     "reference_years": [2021, 2022],
     "window_events": 3,
+    "min_rows": 20,
     "psi_bins": 5,
     "psi_warning": 0.10,
     "psi_alert": 0.25,
@@ -211,3 +212,9 @@ def test_check_on_api_log(setup, monkeypatch, tmp_path):
     assert latest["mode"] == "check" and latest["log_rows"] == 30
     assert latest["log_rows_with_score"] == 0 and latest["signals"]["bias"] is None  # pas encore de scores
     assert code == M.LEVELS[latest["status"]]
+
+    # journal trop court : PSI non évalué, pas de fausse alerte
+    log.head(5).to_parquet(tmp_path / "log.parquet")
+    assert M.cmd_check(SimpleNamespace(), MP, setup["name"]) == 0
+    latest = json.loads((setup["out"] / "latest.json").read_text())
+    assert latest["status"] == "ok" and any("non évalué" in r for r in latest["reasons"])

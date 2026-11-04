@@ -206,9 +206,20 @@ def rolling_checks(cur: pd.DataFrame, ref: Reference, champ: Champion, p: dict, 
             continue
         window_ids = order.index[i + 1 - n_win : i + 1]
         w = cur[cur["event_id"].isin(window_ids)]
-        drift = ref.drift(w)
+        # Trop peu de lignes (journal API court, scores pas encore connus) : signaux non
+        # interprétables, on ne les évalue pas plutôt que de lever de fausses alertes.
+        min_rows = p.get("min_rows", 0)
+        enough = len(w) >= min_rows
+        drift = ref.drift(w) if enough else {f: float("nan") for f in ref.features}
         perf = perf_drift(w, champ.valid_mae, champ.event_bias_sd)
+        n_scored = int(perf["n_rows"]) if perf else 0
+        if perf and n_scored < min_rows:
+            perf = None
         level, reasons = status(drift, perf, p, ref.thresholds)
+        if not enough:
+            reasons.append(f"[info] PSI non évalué : {len(w)} lignes < {min_rows}")
+        if n_scored < min_rows:
+            reasons.append(f"[info] performance non évaluée : {n_scored} lignes notées < {min_rows}")
         alert_of = lambda f: ref.thresholds.get(f, {"alert": p["psi_alert"]})["alert"]  # noqa: E731
         worst = max(drift, key=lambda f: np.nan_to_num(drift[f] / alert_of(f), nan=-1))
         rows.append(
@@ -262,7 +273,7 @@ def write_latest(timeline: pd.DataFrame, champ: Champion, extra: dict, out: Path
     warnings = timeline[timeline.status == "warning"]
     latest = {
         "status": last.status,
-        "reasons": [r for r in str(last.reasons).split(" | ") if r],
+        "reasons": [r for r in str(last.reasons).split(" | ") if r and r != "nan"],
         "last_event": {"event_id": last.event_id, "event_name": last.event_name, "event_start": str(last.event_start)},
         "model": {"name": champ.name, "version": champ.version, "valid_mae": champ.valid_mae,
                   "event_bias_sd": champ.event_bias_sd, "event_bias_sd_source": champ.sd_source},
