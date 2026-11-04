@@ -9,6 +9,7 @@
   "valid_mae_r2": 2.4497,
   "valid_mae_r3": 2.2954,
   "valid_mae_r4": 2.3426,
+  "valid_event_bias_sd": 0.8534,
   "eval_2023_mae": 2.3392,
   "eval_2023_rmse": 2.9616,
   "eval_2023_bias": 0.1417,

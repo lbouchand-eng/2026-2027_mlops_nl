@@ -18,23 +18,27 @@ Architecture, répartition du travail et contrat API ↔ monitoring : [`docs/arc
 parcours) via un score de skill `1 − MAE/MAE_baseline`. Justification, métriques
 secondaires et protocole : [`docs/metric.md`](docs/metric.md).
 
-## Démarrage
+## Démarrage rapide (clone neuf)
+
+Prérequis : [uv](https://docs.astral.sh/uv/) et git. Aucune clé d'API, aucun secret.
 
 ```bash
-uv sync                       # Python 3.12, dépendances + dvc
-uv run dvc pull               # données versionnées depuis ../pga-dvcstore (voir « Remote DVC »)
-uv run pytest                 # tests des parseurs
+git clone https://github.com/lbouchand-eng/2026-2027_mlops_nl.git && cd 2026-2027_mlops_nl
+uv sync                                  # Python 3.12 et dépendances (verrouillées par uv.lock)
+uv run pytest                            # 60+ tests, aucune donnée requise
+uv run dvc repro                         # données depuis les API publiques + features + entraînement (≈ 40 min)
+bash scripts/demo_setup.sh               # 2e version du modèle : champion + previous (pour le rollback)
+uv run uvicorn pga.api:app               # API sur http://127.0.0.1:8000/docs
 ```
 
-Pour (re)construire les données depuis les API (≈ 30-40 min, surtout du throttle) :
+**Plus rapide**, si on vous a transmis le dossier `pga-dvcstore` (≈ 130 Mo) : placez-le à
+côté du dépôt et remplacez `dvc repro` par `uv run dvc pull && uv run python -m pga.train`
+(après un `pull`, DVC considère l'étape `train` à jour : il faut lancer l'entraînement
+directement pour créer le modèle dans le MLflow local, qui n'est pas versionné).
 
-```bash
-uv run dvc repro              # sans stockage : reconstruit tout ; calendar → leaderboards → rounds → courses → weather → features → train
-uv run dvc push
-```
-
-Chaque étape est idempotente : les réponses brutes sont stockées sous `data/raw/` et
-réutilisées si elles existent déjà. Un script interrompu se relance sans perte.
+Chaque étape du pipeline est idempotente : les réponses brutes des API sont gardées sous
+`data/raw/` et réutilisées, donc un `dvc repro` interrompu se relance sans perte.
+`uv run python scripts/registry_status.py` affiche les versions du modèle et leurs alias.
 
 ## Pipeline de données (`dvc.yaml`)
 
@@ -120,6 +124,23 @@ curl -s -X POST localhost:8000/reload        # après un rollback ou une promoti
 - Tests d'intégration (`tests/test_api.py`) : vrai modèle entraîné dans un MLflow
   temporaire, vérification de la version servie, du journal, des 422/503 et du
   rechargement après déplacement de l'alias.
+
+## Monitoring et rollback
+
+```bash
+uv run python -m pga.monitor replay --years 2023 2024                 # drift naturel -> reports/monitoring/timeline_replay.png
+uv run python -m pga.monitor replay --years 2023 2024 --inject fc_wind_mean+15 --since 2024-03-01   # incident simulé
+uv run python -m pga.monitor check                                    # production : journal de l'API
+uv run python -m pga.rollback --reason "..." --api-url http://127.0.0.1:8000   # champion <-> previous
+```
+
+- Signaux sur les 8 derniers tournois : PSI par feature (seuils calibrés sur 2018-2022),
+  z-score du biais par tournoi et ratio de MAE (seuils lus dans les tags du champion).
+  Statut `ok` / `warning` / `alert`, avec le code de sortie 0 / 1 / 2.
+- Drift naturel 2023-2024 : 79 ok, 9 warning (biais de +0,65 coup début 2024), 1 alerte.
+  Incident « vent +15 km/h » : alerte en 4 tournois.
+- Méthode, seuils et résultats : [`docs/monitoring.md`](docs/monitoring.md) ; quoi faire en
+  cas d'alerte : [`docs/runbook.md`](docs/runbook.md).
 
 ## Remote DVC (stockage local)
 
