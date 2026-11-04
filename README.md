@@ -171,7 +171,7 @@ service), et le monitoring revient à ok (19 contrôles sur 19).
 La démo (`scripts/demo.sh`, ≈ 10 s sans les pauses) enchaîne : l'API sert la version
 corrompue, 3 442 prédictions de mars-avril 2024, `monitor check` → alerte (biais +1,79,
 z = 5,9), `trigger` → rollback et rechargement de l'API, mêmes requêtes → ok. Rapport :
-`docs/incident.md`.
+[`docs/incident.md`](docs/incident.md).
 
 ## Remote DVC (stockage local)
 
