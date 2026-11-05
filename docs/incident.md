@@ -87,9 +87,9 @@ toujours sous la MAE de validation.*
 
 | A marché | N'a pas marché |
 |---|---|
-| Le biais par tournoi, rapporté à son bruit (z-score), réagit dès le 1er tournoi touché | Le PSI : 0 alerte, la référence ne décrit pas les données d'entraînement du modèle servi |
+| Le biais par tournoi, rapporté à son bruit (z-score), passe en warning dès le 2e tournoi touché (7 mars) | Le PSI : 0 alerte, la référence ne décrit pas les données d'entraînement du modèle servi |
 | La règle « dégradation juste après une mise en service → rollback » agit avant la 1re alerte | La comparaison champion / challenger est trompée par une fenêtre de décision issue du même backfill |
-| Rollback en une commande, symétrique, tracé dans MLflow ; l'API suit sans redémarrage | Rien n'a bloqué le backfill à l'ingestion : l'erreur n'est vue qu'après 3 tournois en production |
+| Rollback en une commande, symétrique, tracé dans MLflow ; l'API suit sans redémarrage | Rien n'a bloqué le backfill à l'ingestion : l'erreur n'est vue qu'après 4 tournois en production |
 | Seuils de performance lus sur le champion : après le rollback, le monitoring juge v1 avec ses propres seuils | |
 
 ## 8. Actions correctives
