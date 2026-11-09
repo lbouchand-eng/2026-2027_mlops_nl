@@ -1,0 +1,19 @@
+# .git est conservé volontairement : il fournit git_commit et git_dirty aux runs MLflow.
+.env
+.dvc/cache
+.dvc/tmp
+.venv
+.pytest_cache
+.ruff_cache
+**/__pycache__
+.DS_Store
+feasibility_out
+data/raw
+data/interim
+data/processed
+data/monitoring
+mlflow.db
+mlflow_incident.db
+mlartifacts
+mlartifacts_incident
+mlruns
