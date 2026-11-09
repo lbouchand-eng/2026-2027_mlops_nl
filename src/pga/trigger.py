@@ -40,6 +40,7 @@ from mlflow.tracking import MlflowClient
 
 from pga import monitor as M
 from pga import rollback as R
+from pga.alerting import notify
 from pga.config import FEATURES_PATH, MLFLOW_URI, PREDICTIONS_LOG, REPORTS, ROOT, params
 from pga.features import TARGET
 from pga.train import baseline, evaluate, log_model_run, make_model, model_params, set_champion, setup_mlflow, to_xy
@@ -274,6 +275,17 @@ def run_trigger(as_of: pd.Timestamp | None = None, dry_run: bool = False, api_ur
     return decision, outcome
 
 
+def describe(decision: Decision, outcome: dict, dry_run: bool) -> list[str]:
+    lines = [f"[{decision.as_of}] champion v{decision.champion} -> action : {decision.action.upper()}"
+             f"{' (simulation, rien exécuté)' if dry_run else ''}", f"  {decision.reason}"]
+    if outcome.get("version"):
+        verdict = "PROMU champion" if outcome["promoted"] else "non promu"
+        lines.append(f"  challenger v{outcome['version']} : {verdict} — {outcome['reason']}")
+    if outcome.get("to_version"):
+        lines.append(f"  rollback v{outcome['from_version']} -> v{outcome['to_version']}")
+    return lines
+
+
 def main(argv: list[str] | None = None) -> int:
     load_dotenv(ROOT / ".env")
     ap = argparse.ArgumentParser(description="Déclencheur réentraînement / rollback")
@@ -284,13 +296,10 @@ def main(argv: list[str] | None = None) -> int:
     mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", MLFLOW_URI))
     as_of = pd.Timestamp(args.as_of, tz="UTC") + pd.Timedelta(hours=23, minutes=59) if args.as_of else None
     decision, outcome = run_trigger(as_of, args.dry_run, args.api_url)
-    print(f"[{decision.as_of}] champion v{decision.champion} -> action : {decision.action.upper()}"
-          f"{' (simulation, rien exécuté)' if args.dry_run else ''}")
-    print(f"  {decision.reason}")
-    if outcome.get("version"):
-        print(f"  challenger v{outcome['version']} : {'PROMU champion' if outcome['promoted'] else 'non promu'} — {outcome['reason']}")
-    if outcome.get("to_version"):
-        print(f"  rollback v{outcome['from_version']} -> v{outcome['to_version']}")
+    text = "\n".join(describe(decision, outcome, args.dry_run))
+    print(text)
+    if decision.action != "none":
+        notify(f"[PGA] déclencheur\n{text}")
     return CODES[decision.action]
 
 

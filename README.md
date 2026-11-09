@@ -54,7 +54,7 @@ docker compose run --rm --build -e DEMO_ARGS=--no-pause demo   # d'une traite
 docker compose down -v                                      # arrêt et remise à zéro du registry
 ```
 
-Sans Docker, après le `dvc pull` : `uv run pytest` (80 tests, aucune donnée requise),
+Sans Docker, après le `dvc pull` : `uv run pytest` (108 tests, aucune donnée requise),
 `bash scripts/demo_setup.sh` puis `uv run uvicorn pga.api:app`. Pour tout reconstruire
 depuis les API publiques plutôt que depuis la Release : `uv run dvc repro` (≈ 40 min).
 
@@ -185,6 +185,15 @@ l'API quand il les couvre (entrées réellement servies, qu'un backfill ne peut 
 une alerte PSI peu après une mise en service déclenche un rollback, une alerte PSI ne
 déclenche jamais de réentraînement. Un challenger dont les données s'écartent de celles du
 champion n'est pas promu. Détails et résultats : [`docs/runbook.md`](docs/runbook.md).
+
+Planification :
+- `docker compose --profile ops up -d` ajoute le service `scheduler`, qui lance le déclencheur
+  chaque semaine et **exécute** ses décisions sur le registry de la stack ;
+- le workflow `trigger.yml` tourne chaque lundi à 6 h UTC et **décide sans agir** (registry
+  éphémère du runner) : décision dans le résumé du job, `latest.json` en artefact.
+
+Avec `PGA_ALERT_WEBHOOK` (`.env`, ou secret GitHub pour le workflow), les alertes de
+`monitor check` et toute action du déclencheur autre que « rien » sont envoyées sur ce webhook.
 
 ## Incident simulé et démo
 

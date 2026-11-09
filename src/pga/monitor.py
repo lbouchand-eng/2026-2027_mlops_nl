@@ -31,6 +31,7 @@ import yaml
 from dotenv import load_dotenv
 from mlflow.tracking import MlflowClient
 
+from pga.alerting import notify
 from pga.config import FEATURES_PATH, MLFLOW_URI, PREDICTIONS_LOG, REPORTS, ROOT, ROUNDS, params
 from pga.features import FEATURES, TARGET
 from pga.profile import PROFILE_ARTIFACT, make_edges, shares
@@ -432,6 +433,12 @@ def load_log(path: Path, rounds_path: Path | None = None) -> pd.DataFrame:
     return log
 
 
+def notify_alert(latest: dict) -> None:
+    if latest["status"] == "alert":
+        notify(f"[PGA] alerte monitoring : modèle v{latest['model']['version']}, "
+               f"dernier tournoi {latest['last_event']['event_name']}\n" + "\n".join(latest["reasons"]))
+
+
 def cmd_check(args, p: dict, name: str) -> int:
     champ = champion_info(MlflowClient(), name, p["fallback_event_bias_sd"])
     _, ref = load_reference(p, champ)
@@ -442,6 +449,7 @@ def cmd_check(args, p: dict, name: str) -> int:
     latest = write_latest(timeline, champ, {"mode": "check", "mlflow_run_id": run_id,
                                             "log_rows": len(log), "log_rows_with_score": labelled})
     report(latest)
+    notify_alert(latest)
     return LEVELS[latest["status"]]
 
 
