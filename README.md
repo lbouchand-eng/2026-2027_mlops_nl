@@ -48,8 +48,8 @@ docker compose exec api python -m pga.rollback --reason "essai" --api-url http:/
 curl -s localhost:8000/health
 
 # Démo complète de l'incident : requêtes -> alerte -> rollback -> retour à la normale
-docker compose run --rm demo                                # pause à chaque étape (Entrée)
-docker compose run --rm -e DEMO_ARGS=--no-pause demo        # d'une traite
+docker compose run --rm --build demo                        # pause à chaque étape (Entrée)
+docker compose run --rm --build -e DEMO_ARGS=--no-pause demo   # d'une traite
 
 docker compose down -v                                      # arrêt et remise à zéro du registry
 ```
@@ -164,7 +164,8 @@ uv run python -m pga.rollback --reason "..." --api-url http://127.0.0.1:8000   #
   z-score du biais par tournoi et ratio de MAE (seuils lus dans les tags du champion).
   Statut `ok` / `warning` / `alert`, avec le code de sortie 0 / 1 / 2.
 - Drift naturel 2023-2024 : 79 ok, 9 warning (biais de +0,65 coup début 2024), 1 alerte.
-  Incident « vent +15 km/h » : alerte en 4 tournois.
+  Incident « vent +15 km/h » : alerte en 4 tournois. Le PSI est calculé par rapport aux
+  données d'entraînement du modèle servi (`reference_profile.json`).
 - Méthode, seuils et résultats : [`docs/monitoring.md`](docs/monitoring.md) ; quoi faire en
   cas d'alerte : [`docs/runbook.md`](docs/runbook.md).
 
@@ -175,14 +176,16 @@ uv run python -m pga.trigger --dry-run                 # rien (0) / réentraîne
 uv run python -m pga.trigger --as-of 2024-02-05        # simulation : réentraînement après la dérive de janvier 2024
 ```
 
-Champion et challenger sont comparés sur les 8 mêmes tournois récents. Une dégradation
-peu après une mise en service déclenche un rollback, une alerte PSI ne déclenche jamais
-de réentraînement. Détails et résultats : [`docs/runbook.md`](docs/runbook.md).
+Champion et challenger sont comparés sur les 8 mêmes tournois récents. Une dégradation ou
+une alerte PSI peu après une mise en service déclenche un rollback, une alerte PSI ne
+déclenche jamais de réentraînement. Un challenger dont les données s'écartent de celles du
+champion n'est pas promu. Détails et résultats : [`docs/runbook.md`](docs/runbook.md).
 
 ## Incident simulé et démo
 
 ```bash
 uv run python scripts/incident.py all       # scénario complet -> reports/incident/ (registry isolé mlflow_incident.db)
+uv run python scripts/incident.py all --guards   # même panne après correctifs -> reports/incident_guarded/
 bash scripts/demo.sh --prepare               # avant l'oral : champion = version corrompue
 bash scripts/demo.sh                         # démo en direct, pause entre chaque étape
 ```
@@ -198,6 +201,10 @@ La démo (`scripts/demo.sh`, ≈ 10 s sans les pauses) enchaîne : l'API sert la
 corrompue, 3 442 prédictions de mars-avril 2024, `monitor check` → alerte (biais +1,79,
 z = 5,9), `trigger` → rollback et rechargement de l'API, mêmes requêtes → ok. Rapport :
 [`docs/incident.md`](docs/incident.md).
+
+Après correctifs, le même backfill est refusé à la promotion. S'il est forcé, le PSI alerte dès
+le premier tournoi et le rollback a lieu le 11 mars au lieu du 25 (19 alertes PSI sur 19
+contrôles, contre 0 auparavant). La dernière étape de la démo montre ce refus.
 
 ## Remote DVC (stockage local)
 

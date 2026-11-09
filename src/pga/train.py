@@ -35,6 +35,7 @@ from sklearn.ensemble import HistGradientBoostingRegressor
 
 from pga.config import FEATURES_PATH, METRICS_PATH, MLARTIFACTS, MLFLOW_URI, ROOT, params
 from pga.features import FEATURES, TARGET
+from pga.profile import PROFILE_ARTIFACT, build_profile
 
 EXPERIMENT = "pga-score"
 CHAMPION, PREVIOUS = "champion", "previous"
@@ -204,8 +205,10 @@ def setup_mlflow(uri: str, artifacts: Path = MLARTIFACTS, experiment: str = EXPE
 
 
 def log_model_run(model, X_example: pd.DataFrame, params_: dict, metrics: dict, data_path: Path,
-                  name: str, register: bool, tags: dict | None = None) -> tuple[str, str | None]:
+                  name: str, register: bool, fit_frame: pd.DataFrame, tags: dict | None = None) -> tuple[str, str | None]:
     """Logue un modèle entraîné dans le run MLflow actif (params, métriques, traçabilité).
+
+    `fit_frame` : données d'entraînement, résumées dans le profil relu par le monitoring.
 
     Renvoie (run_id, version enregistrée ou None).
     """
@@ -221,6 +224,7 @@ def log_model_run(model, X_example: pd.DataFrame, params_: dict, metrics: dict, 
         }
     )
     mlflow.log_metrics(metrics)
+    mlflow.log_dict(build_profile(fit_frame, FEATURES, params()["monitor"]["psi_bins"]), PROFILE_ARTIFACT)
     info = mlflow.sklearn.log_model(
         model,
         name="model",
@@ -242,8 +246,8 @@ def run(df: pd.DataFrame, p: dict, years: dict, data_path: Path, register: bool 
     name = p["registered_model_name"]
     with mlflow.start_run(run_name=run_name):
         params_ = model_params(p) | {f"{k}_years": f"{v[0]}-{v[1]}" for k, v in years.items()}
-        X_ex = to_xy(select(df, years["refit"]))[0].head(5)
-        run_id, version = log_model_run(model, X_ex, params_, metrics, data_path, name, register)
+        refit = select(df, years["refit"])
+        run_id, version = log_model_run(model, to_xy(refit)[0].head(5), params_, metrics, data_path, name, register, refit)
         result = {"run_id": run_id, "metrics": metrics, "promoted": False, "version": version}
         if register:
             client = MlflowClient()

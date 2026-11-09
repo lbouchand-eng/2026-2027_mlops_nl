@@ -1,0 +1,9 @@
+{
+  "champion": "1",
+  "checks": 19,
+  "statuses": {
+    "ok": 19
+  },
+  "bias_window_max": 0.484,
+  "bias_z_max": 1.6
+}

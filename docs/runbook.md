@@ -15,7 +15,8 @@ expérience `pga-monitoring`.
 | Situation | Signal typique | Réaction |
 |---|---|---|
 | Performance dégradée **juste après une promotion** | biais ou MAE en alerte, la version précédente allait bien | **Rollback** (§ 3) |
-| Données d'entrée corrompues (bug de flux, changement d'unité) | PSI en alerte sur une ou deux features, d'un coup | Corriger la source. **Pas de réentraînement** : on apprendrait le bug. Rollback seulement si la version précédente y est moins sensible. |
+| Alerte PSI **juste après une promotion** | les données d'entraînement du modèle servi diffèrent de la production | **Rollback** (§ 3), puis vérifier le backfill |
+| Données d'entrée corrompues (bug de flux, changement d'unité) | PSI en alerte sur une ou deux features, d'un coup, champion ancien | Corriger la source. **Pas de réentraînement** : on apprendrait le bug. Rollback seulement si la version précédente y est moins sensible. |
 | Dérive lente et confirmée du monde réel | warnings de biais répétés, PSI modéré | **Réentraînement** sur une fenêtre plus récente (§ 4) |
 | Nouvelle population (ex. Q-School) | alerte PSI sur la forme, isolée | Vérifier, documenter, pas d'action si la performance tient |
 
@@ -62,8 +63,8 @@ Le déclencheur recalcule le monitoring « as-of » sur les 3 derniers contrôle
 |---|---|---|
 | rien d'anormal | rien | 0 |
 | biais/MAE dégradés (alerte, ou 3 contrôles consécutifs hors seuil), champion en service depuis plus de 60 j | **réentraînement** | 10 |
-| alerte PSI sur une entrée | **incident de données** : pas de réentraînement, vérifier la source | 20 |
-| biais/MAE dégradés, champion en service depuis moins de 60 j | **rollback** (le dernier déploiement est suspect) | 30 |
+| alerte PSI sur une entrée, champion en service depuis plus de 60 j | **incident de données** : pas de réentraînement, vérifier la source | 20 |
+| biais/MAE dégradés ou alerte PSI, champion en service depuis moins de 60 j | **rollback** (le dernier déploiement est suspect) | 30 |
 
 Comparaison juste : la fenêtre de décision est formée des 8 derniers tournois **terminés**
 à la date (dernier départ + 6 h) : un tournoi en cours apporterait les scores de tours pas
@@ -82,9 +83,12 @@ aucune action jusqu'à fin 2024 : le biais moyen 2024 passe de +0,22 à +0,16 co
 Au 2 février, Pebble Beach est encore en cours : le déclencheur ne voit que deux warnings et
 ne fait rien (`test_event_in_progress_is_not_used`).
 
-Limite connue : si les données de la fenêtre de décision sont corrompues comme celles de
-l'entraînement (backfill erroné), le challenger corrompu peut gagner la comparaison
-(`tests/test_trigger.py::test_corrupted_backfill_fools_the_comparison`). Seul le
-monitoring en production, sur des données saines, le détecte ; la règle « dégradation peu
-après une mise en service → rollback » prend alors le relais. C'est le scénario de
-l'incident simulé.
+Garde-fou de promotion : si la médiane du vent sort de sa plage ou si le PSI entre les données
+du challenger et le profil du champion dépasse le seuil d'alerte, le challenger reste
+`candidate` (tag `blocked_reason`), même s'il gagne la comparaison.
+
+Limite connue : une corruption de la **cible** ne change pas les features, donc ce garde-fou ne
+la voit pas, et le challenger peut gagner la comparaison
+(`tests/test_trigger.py::test_corrupted_backfill_fools_the_comparison`). Seul le monitoring en
+production le détecte ; la règle « dégradation peu après une mise en service → rollback » prend
+alors le relais.

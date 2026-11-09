@@ -31,7 +31,8 @@ def timeline(zs: list[float], reasons: str = "", mae_ratio: float = 1.0) -> pd.D
         ([0.5, 0.5, 3.5], "", 20, "rollback"),                     # ... juste après une mise en service
         ([0.5, 0.5, 3.5], "", 400, "retrain"),                     # mise en service ancienne
         ([0.5, 0.5, 0.5], "[alert] PSI fc_wind_mean = 7 > 1.5", None, "data_incident"),
-        ([3.5, 3.5, 3.5], "[alert] PSI fc_wind_mean = 7 > 1.5", 20, "data_incident"),  # jamais de retrain sur données fausses
+        ([3.5, 3.5, 3.5], "[alert] PSI fc_wind_mean = 7 > 1.5", 400, "data_incident"),  # jamais de retrain sur données fausses
+        ([0.5, 0.5, 0.5], "[alert] PSI fc_wind_mean = 7 > 1.5", 20, "rollback"),  # le dernier déploiement est suspect
     ],
 )
 def test_decision_table(zs, reasons, promoted_days_ago, expected):
@@ -136,6 +137,29 @@ def test_corrupted_backfill_fools_the_comparison(setup):
     assert res["promoted"]
     v = MlflowClient().get_model_version(P["registered_model_name"], res["version"])
     assert v.tags["data_transform"] == "to_par+5"
+
+
+def wind_in_ms(d):
+    d = d.copy()
+    for col in ("fc_wind_mean", "fc_gust_max"):
+        d[col] = d[col] / 3.6
+    return d
+
+
+def test_wind_backfill_in_ms_is_blocked(setup):
+    """Le challenger paraît meilleur sur une fenêtre corrompue, mais ses données diffèrent du champion."""
+    res = TR.retrain(setup["df"], AS_OF, setup["champ"], P, MP, PT | {"bias_tolerance": 5.0}, setup["path"],
+                     transform=wind_in_ms, transform_label="vent en m/s")
+    assert not res["promoted"] and any("fc_wind_mean" in b for b in res["blocked"])
+    c = MlflowClient()
+    assert str(c.get_model_version_by_alias(P["registered_model_name"], "champion").version) == setup["champ"].version
+    assert "fc_wind_mean" in c.get_model_version(P["registered_model_name"], res["version"]).tags["blocked_reason"]
+
+
+def test_guards_off_replays_the_original_incident(setup):
+    res = TR.retrain(setup["df"], AS_OF, setup["champ"], P, MP, PT | {"bias_tolerance": 5.0}, setup["path"],
+                     transform=wind_in_ms, transform_label="vent en m/s", guards=False)
+    assert res["promoted"] and res["blocked"] == []
 
 
 def test_data_incident_never_trains(setup, monkeypatch):

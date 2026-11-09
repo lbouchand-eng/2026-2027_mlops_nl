@@ -1,0 +1,84 @@
+{
+  "scenario": "backfill vent en m/s (÷3,6) sur tout l'historique",
+  "corrupted_at": "2024-03-01",
+  "guards": true,
+  "steps": {
+    "1_setup": {
+      "champion": "1",
+      "valid_mae": 2.379929047168928,
+      "promoted_at": "2023-01-01 (mise en service simulée)"
+    },
+    "2_blocked": {
+      "date": "2024-03-01",
+      "challenger": "2",
+      "promoted": false,
+      "reason": "challenger MAE 2.261 / biais +0.045 vs champion v1 MAE 2.316 / biais -0.285 sur 8 tournois | promotion bloquée : médiane du vent 3.0 km/h hors de la plage [6, 20] ; PSI fc_gust_max = 6.05 > 3.26 ; PSI fc_wind_mean = 5.20 > 1.57",
+      "blocked": [
+        "médiane du vent 3.0 km/h hors de la plage [6, 20]",
+        "PSI fc_gust_max = 6.05 > 3.26",
+        "PSI fc_wind_mean = 5.20 > 1.57"
+      ]
+    },
+    "2_corrupt": {
+      "date": "2024-03-01",
+      "challenger": "3",
+      "promoted": true,
+      "reason": "challenger MAE 2.261 / biais +0.045 vs champion v1 MAE 2.316 / biais -0.285 sur 8 tournois",
+      "challenger_metrics": {
+        "mae": 2.261295321837477,
+        "rmse": 2.865180656451864,
+        "bias": 0.0454760874333916,
+        "mae_baseline": 2.4972529614708083,
+        "skill": 0.09448687949272028,
+        "n": 2959.0,
+        "mae_r1": 2.2006467188120333,
+        "mae_r2": 2.1720042011766987,
+        "mae_r3": 2.5172208565341347,
+        "mae_r4": 2.2060566896735203
+      },
+      "champion_metrics": {
+        "mae": 2.3157412044980696,
+        "rmse": 2.943093807991196,
+        "bias": -0.28509192579773723,
+        "mae_baseline": 2.4972529614708083,
+        "skill": 0.07268456971448889,
+        "n": 2959.0,
+        "mae_r1": 2.31019575199206,
+        "mae_r2": 2.177097308214086,
+        "mae_r3": 2.5577785017026993,
+        "mae_r4": 2.2679040402589807
+      },
+      "data_transform": "backfill vent en m/s (÷3,6) sur tout l'historique"
+    },
+    "3_detect": {
+      "champion": "3",
+      "first_reaction": {
+        "as_of": "2024-03-11",
+        "event": "Arnold Palmer Invitational pres. by Mastercard",
+        "action": "rollback",
+        "reason": "alerte PSI juste après la mise en service de v3 (2024-03-01) : [alert] PSI fc_gust_max = 5.69 > 3.26 | [alert] PSI fc_wind_mean = 4.25 > 1.57",
+        "tournaments_after_corruption": 1
+      },
+      "checks": 19,
+      "n_alert": 19,
+      "first_alert": "2024-03-07 05:00:00+00:00",
+      "psi_alerts": 19,
+      "bias_window_max": 1.943
+    },
+    "4_rollback": {
+      "as_of": "2024-03-11",
+      "from": "3",
+      "to": "1",
+      "trace": "b27f5e0c4ec44f60b89b661451d466ef"
+    },
+    "5_recover": {
+      "champion": "1",
+      "checks": 19,
+      "statuses": {
+        "ok": 19
+      },
+      "bias_window_max": 0.484,
+      "bias_z_max": 1.6
+    }
+  }
+}

@@ -38,6 +38,7 @@ from pga import monitor as M
 from pga import rollback as R
 from pga.config import FEATURES_PATH, MLFLOW_URI, REPORTS, ROOT, params
 from pga.train import baseline, evaluate, log_model_run, make_model, model_params, set_champion, setup_mlflow, to_xy
+from pga.weather import wind_median_problem
 
 OPERATIONS = "pga-operations"
 CODES = {"none": 0, "retrain": 10, "data_incident": 20, "rollback": 30}
@@ -76,13 +77,17 @@ def decide(timeline: pd.DataFrame, as_of: pd.Timestamp, promoted_at: pd.Timestam
     last = timeline.iloc[-1]
     levels = [perf_level(r, pm) for _, r in timeline.tail(pt["consecutive_checks"]).iterrows()]
     base = dict(as_of=str(as_of.date()), champion=champion, last_status=last["status"], perf_levels=levels)
+    recent = promoted_at is not None and 0 <= (as_of - promoted_at).days <= pt["recent_promotion_days"]
     if psi_alert(last):
+        if recent:  # le dernier déploiement est suspect : ses données d'entraînement diffèrent de la production
+            return Decision("rollback", f"alerte PSI juste après la mise en service de v{champion} "
+                                        f"({promoted_at.date()}) : {last['reasons']}", **base)
         return Decision("data_incident", f"alerte PSI : {last['reasons']}", **base)
     degraded = levels[-1] == "alert" or (len(levels) >= pt["consecutive_checks"] and "ok" not in levels)
     if not degraded:
         return Decision("none", "performance dans les seuils", **base)
     detail = f"biais {last['bias']:+.2f} coup (z {last['bias_z']:+.1f}), MAE ratio {last['mae_ratio']:.2f}, contrôles {levels}"
-    if promoted_at is not None and 0 <= (as_of - promoted_at).days <= pt["recent_promotion_days"]:
+    if recent:
         return Decision("rollback", f"dégradation juste après la mise en service de v{champion} "
                                     f"({promoted_at.date()}) : {detail}", **base)
     return Decision("retrain", f"dérive confirmée : {detail}", **base)
@@ -112,9 +117,7 @@ def monitoring_as_of(df: pd.DataFrame, as_of: pd.Timestamp, champ: M.Champion, p
     needed = order.index[-(pm["window_events"] + k - 1):]
     cur = df[df["event_id"].isin(needed)].copy()
     cur["prediction"] = M.predict_champion(champ, cur)
-    lo, hi = pm["reference_years"]
-    ref = M.Reference(df[df["year"].between(lo, hi)], pm["psi_features"], pm["psi_bins"], M.load_thresholds())
-    return M.rolling_checks(cur, ref, champ, pm, emit_from=order.iloc[-k])
+    return M.rolling_checks(cur, M.champion_reference(champ, df, pm), champ, pm, emit_from=order.iloc[-k])
 
 
 # --- réentraînement -----------------------------------------------------------------------------
@@ -125,12 +128,25 @@ def decision_window(df: pd.DataFrame, as_of: pd.Timestamp, n_events: int) -> tup
     return ids, order.loc[ids].min()
 
 
+def promotion_blocks(fit: pd.DataFrame, ref: M.Reference, pm: dict, wind_range: list[float] | None) -> list[str]:
+    """Motifs de refus d'un challenger : unité du vent, puis écart à l'entraînement du champion."""
+    blocks = []
+    if wind_range and (problem := wind_median_problem(fit["fc_wind_mean"], wind_range)):
+        blocks.append(problem)
+    _, reasons = M.status(ref.drift(fit), None, pm, ref.thresholds)
+    return blocks + [r.removeprefix("[alert] ") for r in reasons if r.startswith("[alert]")]
+
+
 def retrain(df: pd.DataFrame, as_of: pd.Timestamp, champ: M.Champion, p_train: dict, pm: dict, pt: dict,
             data_path: Path, transform: Callable[[pd.DataFrame], pd.DataFrame] | None = None,
-            transform_label: str = "aucune", promote: bool = True) -> dict:
+            transform_label: str = "aucune", promote: bool = True, guards: bool = True,
+            wind_range: list[float] | None = None) -> dict:
     """Entraîne un challenger sur les données antérieures à la fenêtre de décision et le compare
     au champion sur cette fenêtre. `transform` : altération des données d'entraînement et de
     décision (backfill), utilisée par l'incident simulé.
+
+    `guards` : refuse la promotion si les données du challenger s'écartent de celles du champion
+    (désactivé seulement pour rejouer le scénario d'origine de l'incident).
     """
     ids, start = decision_window(df, as_of, pm["window_events"])
     data = transform(df) if transform else df
@@ -144,6 +160,7 @@ def retrain(df: pd.DataFrame, as_of: pd.Timestamp, champ: M.Champion, p_train: d
     m_ch = evaluate(y_dec, challenger.predict(X_dec), baseline(dec), dec["round"])
     m_champ = evaluate(y_dec, M.predict_champion(champ, dec), baseline(dec), dec["round"])
     better = m_ch["mae"] < m_champ["mae"] and abs(m_ch["bias"]) <= abs(m_champ["bias"]) + pt["bias_tolerance"]
+    blocks = promotion_blocks(fit, M.champion_reference(champ, df, pm), pm, wind_range) if guards else []
 
     name = p_train["registered_model_name"]
     metrics = {f"decision_{k}": v for k, v in m_ch.items()} | {f"decision_champion_{k}": v for k, v in m_champ.items()}
@@ -152,7 +169,7 @@ def retrain(df: pd.DataFrame, as_of: pd.Timestamp, champ: M.Champion, p_train: d
     tags = {"trigger": "retrain", "as_of": str(as_of.date()), "compared_to": f"v{champ.version}",
             "data_transform": transform_label}
     with mlflow.start_run(run_name=f"retrain as-of {as_of.date()}"):
-        run_id, version = log_model_run(challenger, X_dec.head(5), params_, metrics, data_path, name, True, tags)
+        run_id, version = log_model_run(challenger, X_dec.head(5), params_, metrics, data_path, name, True, fit, tags)
         client = MlflowClient()
         # Seuils de monitoring de la nouvelle version : MAE mesurée sur la fenêtre de décision,
         # bruit du biais par tournoi hérité du champion (propriété du problème, pas du modèle).
@@ -160,15 +177,19 @@ def retrain(df: pd.DataFrame, as_of: pd.Timestamp, champ: M.Champion, p_train: d
                      "valid_event_bias_sd": champ.event_bias_sd, "as_of": str(as_of.date()),
                      "data_transform": transform_label}.items():
             client.set_model_version_tag(name, version, k, f"{v:.6f}" if isinstance(v, float) else str(v))
-        promoted = bool(better and promote)
+        promoted = bool(better and promote and not blocks)
         if promoted:
             set_champion(client, name, version, promoted_at=str(as_of.date()))
         else:
             client.set_model_version_tag(name, version, "status", "candidate")
+        if blocks:
+            client.set_model_version_tag(name, version, "blocked_reason", " ; ".join(blocks)[:500])
         reason = (f"challenger MAE {m_ch['mae']:.3f} / biais {m_ch['bias']:+.3f} vs champion v{champ.version} "
                   f"MAE {m_champ['mae']:.3f} / biais {m_champ['bias']:+.3f} sur {len(ids)} tournois")
+        if blocks:
+            reason += " | promotion bloquée : " + " ; ".join(blocks)
         mlflow.set_tags({"registered_version": version, "promoted": str(promoted).lower(), "promotion_reason": reason})
-    return {"version": version, "promoted": promoted, "reason": reason, "run_id": run_id,
+    return {"version": version, "promoted": promoted, "reason": reason, "run_id": run_id, "blocked": blocks,
             "challenger": m_ch, "champion": m_champ, "fit_until": str(start.date())}
 
 
@@ -211,7 +232,8 @@ def run_trigger(as_of: pd.Timestamp | None = None, dry_run: bool = False, api_ur
     outcome: dict = {"executed": False}
     if not dry_run and decision.action == "retrain":
         setup_mlflow(os.environ.get("MLFLOW_TRACKING_URI", MLFLOW_URI))
-        outcome = {"executed": True} | retrain(df, as_of, champ, p_train, pm, pt, data_path)
+        wind_range = all_p.get("weather", {}).get("wind_median_kmh")
+        outcome = {"executed": True} | retrain(df, as_of, champ, p_train, pm, pt, data_path, wind_range=wind_range)
     elif not dry_run and decision.action == "rollback":
         res = R.rollback(client, champ.name, reason=decision.reason[:500])
         outcome = {"executed": True, "from_version": res.from_version, "to_version": res.to_version}

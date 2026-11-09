@@ -33,6 +33,21 @@ AGG = {
 }
 
 
+def check_wind_units(units: dict) -> None:
+    """Refuse une réponse dont le vent n'est pas en km/h (cause de l'incident : docs/incident.md)."""
+    for col in ("wind_speed_10m", "wind_gusts_10m"):
+        if units.get(col) != "km/h":
+            raise ValueError(f"unité inattendue pour {col} : {units.get(col)!r} (attendu : km/h)")
+
+
+def wind_median_problem(wind: pd.Series, bounds: list[float]) -> str | None:
+    """Motif de refus si la médiane du vent prévu sort de la plage historique, sinon None."""
+    median = float(wind.median())
+    if bounds[0] <= median <= bounds[1]:
+        return None
+    return f"médiane du vent {median:.1f} km/h hors de la plage [{bounds[0]:g}, {bounds[1]:g}]"
+
+
 def fetch_hourly(src: str, event_id: str, lat: float, lon: float, start, end, hourly: list[str], p: dict) -> pd.DataFrame:
     url, raw_dir = SOURCES[src]
     data = get_json(
@@ -50,6 +65,7 @@ def fetch_hourly(src: str, event_id: str, lat: float, lon: float, start, end, ho
         timeout=p["timeout_s"],
         interval=p["request_interval_s"],
     )
+    check_wind_units(data.get("hourly_units", {}))
     h = pd.DataFrame(data["hourly"])
     h["time"] = pd.to_datetime(h["time"], utc=True)
     return h.set_index("time").astype(float)
@@ -110,6 +126,9 @@ def main() -> None:
     for name, _ in AGG.values():
         df[f"diff_{name}"] = df[f"obs_{name}"] - df[f"fc_{name}"]
 
+    problem = wind_median_problem(df["fc_wind_mean"], w["wind_median_kmh"])
+    if problem:
+        sys.exit(f"backfill météo refusé : {problem}")
     WEATHER_ROUNDS.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(WEATHER_ROUNDS, index=False)
     year = rounds.set_index(["event_id", "player_id", "round"]).year

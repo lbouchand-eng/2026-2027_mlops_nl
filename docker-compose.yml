@@ -1,5 +1,5 @@
 # docker compose up --build   -> API sur :8000, interface MLflow sur :5001
-# docker compose run --rm demo -> démo de l'incident (alerte puis rollback), registry isolé
+# docker compose run --rm --build demo -> démo de l'incident (alerte puis rollback), registry isolé
 #
 # Prérequis : data/processed/ présent (voir « Démarrage rapide » du README).
 # Ports limités à la machine locale : /reload n'a pas d'authentification.

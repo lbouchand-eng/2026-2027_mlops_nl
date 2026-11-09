@@ -10,13 +10,17 @@ Après chaque tournoi, on contrôle une **fenêtre glissante des 8 derniers tour
 
 | Signal | Disponible | Formule | Warning | Alert |
 |---|---|---|---|---|
-| Drift des données | dès la prédiction | PSI de chaque feature surveillée vs référence 2018-2022 | seuil calibré par feature | seuil calibré par feature |
+| Drift des données | dès la prédiction | PSI de chaque feature surveillée vs données d'entraînement du champion | seuil calibré par feature | seuil calibré par feature |
 | Biais | quand les scores sont connus | `z = biais moyen par tournoi / (σ_tournoi / √n_tournois)` | \|z\| > 2 | \|z\| > 3 |
 | MAE | quand les scores sont connus | MAE de la fenêtre / MAE de validation du champion | | > 1,10 |
 
 Le statut est le pire des signaux. Code de sortie : 0 `ok`, 1 `warning`, 2 `alert`.
 En dessous de 500 lignes (journal de l'API encore court, scores pas encore publiés), les
 signaux ne sont pas évalués plutôt que de lever de fausses alertes.
+
+La référence du PSI est le **profil enregistré avec le modèle servi** (`reference_profile.json`) :
+elle suit le champion après un rollback. Les versions sans profil utilisent `reference_years`.
+Pour un modèle standard, les deux sont identiques (2018-2022). Voir `docs/incident.md`, § 9.
 
 ## Pourquoi un z-score du biais, et pas un seuil fixe
 
