@@ -2,10 +2,10 @@
 import mlflow
 import pytest
 from mlflow.tracking import MlflowClient
+from test_train import YEARS, P, make_features
 
 from pga import rollback as R
 from pga import train as T
-from test_train import P, YEARS, make_features
 
 NAME = P["registered_model_name"]
 

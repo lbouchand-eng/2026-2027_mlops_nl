@@ -30,7 +30,6 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import mlflow
-import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 from mlflow.tracking import MlflowClient
@@ -38,7 +37,6 @@ from mlflow.tracking import MlflowClient
 from pga import monitor as M
 from pga import rollback as R
 from pga.config import FEATURES_PATH, MLFLOW_URI, REPORTS, ROOT, params
-from pga.features import FEATURES, TARGET
 from pga.train import baseline, evaluate, log_model_run, make_model, model_params, set_champion, setup_mlflow, to_xy
 
 OPERATIONS = "pga-operations"

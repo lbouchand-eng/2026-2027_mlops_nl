@@ -33,14 +33,13 @@ ARTIFACTS = ROOT / "mlartifacts_incident"
 OUT = ROOT / "reports" / "incident"
 os.environ["MLFLOW_TRACKING_URI"] = f"sqlite:///{DB}"  # avant tout import de pga
 
-import mlflow  # noqa: E402
 import pandas as pd  # noqa: E402
 from mlflow.tracking import MlflowClient  # noqa: E402
 
 from pga import monitor as M  # noqa: E402
 from pga import rollback as R  # noqa: E402
-from pga import trigger as TR  # noqa: E402
 from pga import train as T  # noqa: E402
+from pga import trigger as TR  # noqa: E402
 from pga.config import FEATURES_PATH, params  # noqa: E402
 
 CORRUPT_AT = pd.Timestamp("2024-03-01 23:59", tz="UTC")

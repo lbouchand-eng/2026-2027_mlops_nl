@@ -1,5 +1,7 @@
 # PGA Tour — score par tour (projet MLOps)
 
+[![CI](https://github.com/lbouchand-eng/2026-2027_mlops_nl/actions/workflows/ci.yml/badge.svg)](https://github.com/lbouchand-eng/2026-2027_mlops_nl/actions/workflows/ci.yml)
+
 Prévoir le score **vs par** de chaque joueur du PGA Tour à chaque tour, à partir de :
 la météo **prévue** sur sa fenêtre de départ, sa forme récente relative au field, son
 historique sur le parcours et la difficulté du parcours (éditions passées uniquement).
@@ -25,7 +27,7 @@ Prérequis : [uv](https://docs.astral.sh/uv/) et git. Aucune clé d'API, aucun s
 ```bash
 git clone https://github.com/lbouchand-eng/2026-2027_mlops_nl.git && cd 2026-2027_mlops_nl
 uv sync                                  # Python 3.12 et dépendances (verrouillées par uv.lock)
-uv run pytest                            # 60+ tests, aucune donnée requise
+uv run pytest                            # 80 tests, aucune donnée requise
 uv run dvc repro                         # données depuis les API publiques + features + entraînement (≈ 40 min)
 bash scripts/demo_setup.sh               # 2e version du modèle : champion + previous (pour le rollback)
 uv run uvicorn pga.api:app               # API sur http://127.0.0.1:8000/docs
@@ -39,6 +41,9 @@ directement pour créer le modèle dans le MLflow local, qui n'est pas versionn�
 Chaque étape du pipeline est idempotente : les réponses brutes des API sont gardées sous
 `data/raw/` et réutilisées, donc un `dvc repro` interrompu se relance sans perte.
 `uv run python scripts/registry_status.py` affiche les versions du modèle et leurs alias.
+
+CI (`.github/workflows/ci.yml`) : à chaque PR et push sur `main`, `uv sync --locked`,
+`ruff check` puis `pytest`. Les tests n'ont besoin ni des données DVC ni du MLflow local.
 
 ## Pipeline de données (`dvc.yaml`)
 

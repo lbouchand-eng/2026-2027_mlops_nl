@@ -6,12 +6,12 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 from mlflow.tracking import MlflowClient
+from test_train import YEARS, P, make_features
 
 from pga import train as T
 from pga.api import create_app
 from pga.config import params
 from pga.features import FEATURES
-from test_train import P, YEARS, make_features
 
 NAME = params()["train"]["registered_model_name"]
 
