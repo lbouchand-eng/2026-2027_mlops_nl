@@ -13,6 +13,7 @@ Après chaque tournoi, on contrôle une **fenêtre glissante des 8 derniers tour
 | Drift des données | dès la prédiction | PSI de chaque feature surveillée vs données d'entraînement du champion | seuil calibré par feature | seuil calibré par feature |
 | Biais | quand les scores sont connus | `z = biais moyen par tournoi / (σ_tournoi / √n_tournois)` | \|z\| > 2 | \|z\| > 3 |
 | MAE | quand les scores sont connus | MAE de la fenêtre / MAE de validation du champion | | > 1,10 |
+| CUSUM du biais | quand les scores sont connus | `S± = max(0, S± ± z_t − k)`, `z_t = biais du tournoi / σ_tournoi`, cumulé sans fenêtre | S > 3 | S > 4 |
 
 Le statut est le pire des signaux. Code de sortie : 0 `ok`, 1 `warning`, 2 `alert`.
 En dessous de 500 lignes (journal de l'API encore court, scores pas encore publiés), les
@@ -30,6 +31,25 @@ corrélées au sein d'un tournoi. Le biais par tournoi du champion a un écart-t
 dans le Registry). Un seuil fixe « |biais| > 0,2 » sonnerait sur la moitié des tournois.
 Le z-score ramène le biais de la fenêtre à son bruit attendu ; il est lu dans les tags du
 **champion** : après un rollback, les seuils suivent automatiquement le modèle servi.
+
+## Pourquoi un CUSUM en plus du z-score
+
+Le z-score est une moyenne sur 8 tournois : un biais qui apparaît est dilué par les tournois
+sains de la fenêtre, d'où 4 tournois pour détecter l'incident ci-dessous. Le CUSUM (Page,
+1954) ne moyenne pas, il **accumule** : chaque tournoi ajoute `z_t − k` à la somme, qui ne
+descend jamais sous 0. Le bruit centré est absorbé par `k`, un petit biais qui se répète
+s'additionne. Deux sommes, une par sens (prédictions trop hautes / trop basses).
+
+- `k = 0,5` : réglage standard pour détecter un décalage de 1 σ_tournoi (≈ 0,85 coup).
+- Seuils vérifiés **hors échantillon** : modèle entraîné jusqu'à l'année N−1, évalué sur N,
+  pour N = 2019 à 2022 (167 tournois). Toutes les alertes (S > 4) tombent en **2020**
+  (saison Covid, biais moyen −0,44 coup : une vraie rupture) ; aucune en 2019, 2021, 2022.
+  Avec S > 5, une seule alerte, aussi en 2020 : 4 est le compromis retenu.
+- Le CUSUM est lu dans le même tag `valid_event_bias_sd` du champion que le z-score.
+
+Limite : le déclencheur (`trigger.py`) décide toujours sur le z-score et la MAE ; il ne voit
+que les derniers tournois (« as-of »), ce qui tronquerait le cumul. Le CUSUM accélère l'alerte
+et le rollback manuel du runbook, pas encore la décision automatique.
 
 ## Pourquoi des seuils PSI calibrés par feature
 
@@ -70,6 +90,8 @@ contexte), dont la distribution sur 8 tournois n'a pas de sens.
 - **Seule alerte** : le Q-School de décembre 2023, un field de joueurs sans historique sur
   le PGA Tour, absent de la période de référence. C'est une vraie nouvelle population.
 - Le reste : des warnings isolés sur la météo ou la forme, sans effet sur la performance.
+- **CUSUM** : aucun statut modifié. Il dépasse le seuil de warning une seule fois (3,3 le
+  18 janvier 2024, contrôle déjà en warning par le z-score) et n'atteint jamais l'alerte.
 
 **Lecture** : dérive lente, détectée au niveau warning ; elle justifie un réentraînement
 planifié, pas une intervention d'urgence.
@@ -80,16 +102,21 @@ planifié, pas une intervention d'urgence.
 uv run python -m pga.monitor replay --years 2023 2024 --inject fc_wind_mean+15 --since 2024-03-01
 ```
 
-| Tournoi | Statut | PSI vent | Biais | z |
-|---|---|---|---|---|
-| 7 mars (1er tournoi touché) | ok | 0,42 | +0,51 | 1,7 |
-| 14 mars, THE PLAYERS | **warning** | 0,74 | +0,77 | 2,6 |
-| 28 mars, Houston Open | **alert** | 1,62 | +1,03 | 3,4 |
-| 11 avril, Masters | alert | 3,47 | +1,21 | 4,0 |
+| Tournoi | Statut sans CUSUM | Statut avec CUSUM | PSI vent | Biais | z | CUSUM |
+|---|---|---|---|---|---|---|
+| 29 fév., Cognizant Classic (avant l'injection) | ok | ok | 0,35 | +0,31 | 1,0 | 1,9 |
+| 7 mars, Puerto Rico Open (1re semaine touchée) | ok | **warning** | 0,42 | +0,51 | 1,7 | 3,6 |
+| 7 mars, Arnold Palmer Invitational | ok | **alert** | 0,42 | +0,60 | 2,0 | 4,9 |
+| 14 mars, THE PLAYERS | warning | alert | 0,74 | +0,77 | 2,6 | 5,3 |
+| 28 mars, Houston Open | alert | alert | 1,62 | +1,03 | 3,4 | 7,7 |
+| 11 avril, Masters | alert | alert | 3,47 | +1,21 | 4,0 | 8,6 |
 
-Détection en **4 tournois** : la fenêtre de 8 tournois dilue les premiers tournois touchés.
-C'est le compromis assumé : une fenêtre plus courte détecterait plus vite mais lèverait
-plus de fausses alertes (voir ci-dessus).
+Sans CUSUM, détection en **4 tournois** : la fenêtre de 8 tournois dilue les premiers
+tournois touchés. Une fenêtre plus courte détecterait plus vite mais lèverait plus de
+fausses alertes. Avec le CUSUM, **alerte dès la 1re semaine touchée** (3 semaines plus tôt),
+sans alerte supplémentaire sur le drift naturel. À noter : le CUSUM entre en mars à 1,9,
+déjà chargé par la dérive naturelle de janvier ; c'est voulu (un biais qui revient dans le
+même sens est plus suspect), mais il faut le dire en lisant ce gain.
 
 ## Sorties
 

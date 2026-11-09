@@ -4,7 +4,8 @@ Deux familles de signaux, calculées sur une fenêtre glissante des N derniers t
 - drift des données : PSI de chaque feature surveillée vs les données d'entraînement du
   modèle servi (disponible dès la prédiction, sans attendre les scores) ;
 - drift de performance : biais moyen par tournoi rapporté à son bruit de référence
-  (z-score) et MAE rapportée à la MAE de validation du champion (scores nécessaires).
+  (z-score) et MAE rapportée à la MAE de validation du champion (scores nécessaires) ;
+  CUSUM du biais par tournoi, cumulé depuis le début de l'historique (pas de fenêtre).
 Les seuils de performance sont lus dans les tags de la version **champion** du Registry.
 
 Commandes :
@@ -114,6 +115,29 @@ def perf_drift(window: pd.DataFrame, ref_mae: float, ref_bias_sd: float) -> dict
     }
 
 
+def cusum(z, k: float) -> tuple[np.ndarray, np.ndarray]:
+    """CUSUM bilatéral : S+ = max(0, S+ + z - k), S- = max(0, S- - z - k).
+
+    Un petit écart qui se répète s'accumule, le bruit centré est absorbé par `k`.
+    z = NaN (tournoi sans score) : les sommes restent inchangées.
+    """
+    up, down, s_up, s_down = [], [], 0.0, 0.0
+    for v in np.asarray(z, dtype=float):
+        if not np.isnan(v):
+            s_up, s_down = max(0.0, s_up + v - k), max(0.0, s_down - v - k)
+        up.append(s_up)
+        down.append(s_down)
+    return np.array(up), np.array(down)
+
+
+def event_cusum(cur: pd.DataFrame, order: pd.Series, event_bias_sd: float, k: float) -> pd.DataFrame:
+    """CUSUM du biais par tournoi standardisé, dans l'ordre des tournois (`order` : event_id -> début)."""
+    w = cur.dropna(subset=[TARGET, "prediction"])
+    z = ((w["prediction"] - w[TARGET]).groupby(w["event_id"]).mean() / event_bias_sd).reindex(order.index)
+    up, down = cusum(z, k)
+    return pd.DataFrame({"cusum_up": up, "cusum_down": down}, index=order.index)
+
+
 def status(drift: dict[str, float], perf: dict[str, float] | None, p: dict,
            thresholds: dict[str, dict[str, float]] | None = None) -> tuple[str, list[str]]:
     """Statut global (le pire des signaux) et raisons lisibles.
@@ -145,6 +169,12 @@ def status(drift: dict[str, float], perf: dict[str, float] | None, p: dict,
             raise_to("warning", f"biais {perf['bias']:+.2f} coup (z = {perf['bias_z']:+.1f}, seuil {p['bias_z_warning']})")
         if perf["mae_ratio"] > p["mae_ratio_alert"]:
             raise_to("alert", f"MAE {perf['mae']:.2f} = {perf['mae_ratio']:.2f} x validation (seuil {p['mae_ratio_alert']})")
+        if "cusum_up" in perf:
+            c, side = max((perf["cusum_up"], "trop hautes"), (perf["cusum_down"], "trop basses"))
+            for lvl in ("alert", "warning"):
+                if c > p[f"cusum_h_{lvl}"]:
+                    raise_to(lvl, f"CUSUM du biais {c:.1f} > {p[f'cusum_h_{lvl}']} (prédictions {side})")
+                    break
     return level, reasons
 
 
@@ -211,8 +241,10 @@ def rolling_checks(cur: pd.DataFrame, ref: Reference, champ: Champion, p: dict, 
     Les tournois antérieurs à `emit_from` ne servent qu'à remplir la première fenêtre
     (pas de contrôle émis) ; une fenêtre incomplète n'est jamais contrôlée, sauf si `cur`
     contient moins de `window_events` tournois (mode check sur un journal court).
+    Le CUSUM (si `cusum_k` est défini) est cumulé sur tous les tournois de `cur`, préremplissage compris.
     """
     order = cur.groupby("event_id")["event_start"].min().sort_values()
+    cs = event_cusum(cur, order, champ.event_bias_sd, p["cusum_k"]) if "cusum_k" in p else None
     n_win = min(p["window_events"], len(order))
     rows = []
     for i, (eid, start) in enumerate(order.items()):
@@ -229,6 +261,8 @@ def rolling_checks(cur: pd.DataFrame, ref: Reference, champ: Champion, p: dict, 
         n_scored = int(perf["n_rows"]) if perf else 0
         if perf and n_scored < min_rows:
             perf = None
+        if perf and cs is not None:
+            perf = {**perf, **cs.loc[eid].to_dict()}
         level, reasons = status(drift, perf, p, ref.thresholds)
         if not enough:
             reasons.append(f"[info] PSI non évalué : {len(w)} lignes < {min_rows}")
@@ -269,7 +303,7 @@ def log_timeline(timeline: pd.DataFrame, champ: Champion, tags: dict, p: dict) -
         mlflow.set_tags({**tags, "model_version": champ.version, "event_bias_sd_source": champ.sd_source})
         for r in timeline.itertuples():
             metrics = {"status_level": LEVELS[r.status], "psi_max": r.psi_max, "psi_ratio_max": r.psi_ratio_max}
-            for k in ("bias", "bias_z", "mae", "mae_ratio"):
+            for k in ("bias", "bias_z", "mae", "mae_ratio", "cusum_up", "cusum_down"):
                 v = getattr(r, k, np.nan)
                 if pd.notna(v):
                     metrics[k] = v
@@ -292,7 +326,8 @@ def write_latest(timeline: pd.DataFrame, champ: Champion, extra: dict, out: Path
         "model": {"name": champ.name, "version": champ.version, "valid_mae": champ.valid_mae,
                   "event_bias_sd": champ.event_bias_sd, "event_bias_sd_source": champ.sd_source},
         "signals": {k: (None if pd.isna(last.get(k)) else round(float(last.get(k)), 4))
-                    for k in ("psi_max", "psi_ratio_max", "bias", "bias_z", "mae", "mae_ratio", "n_events")},
+                    for k in ("psi_max", "psi_ratio_max", "bias", "bias_z", "mae", "mae_ratio", "n_events",
+                              "cusum_up", "cusum_down")},
         "psi_max_feature": last.psi_max_feature,
         "history": {"n_checks": len(timeline), "n_warning": len(warnings), "n_alert": len(alerts),
                     "first_warning": str(warnings.event_start.min()) if len(warnings) else None,
@@ -315,13 +350,16 @@ def plot_timeline(timeline: pd.DataFrame, p: dict, path: Path, title: str, since
 
     t = pd.to_datetime(timeline["event_start"])
     colors = {"ok": "#ffffff", "warning": "#f6d58b", "alert": "#ee8f8f"}
-    fig, axes = plt.subplots(3, 1, figsize=(11, 7.5), sharex=True)
     panels = [
         ("bias_z", "z-score du biais", [(p["bias_z_warning"], "--"), (p["bias_z_alert"], "-"),
                                         (-p["bias_z_warning"], "--"), (-p["bias_z_alert"], "-")]),
         ("mae_ratio", "MAE / MAE validation", [(p["mae_ratio_alert"], "-")]),
         ("psi_ratio_max", "PSI / seuil d'alerte (max)", [(1.0, "-")]),
     ]
+    if "cusum_up" in timeline:
+        timeline = timeline.assign(cusum=timeline[["cusum_up", "cusum_down"]].max(axis=1))
+        panels.insert(1, ("cusum", "CUSUM du biais", [(p["cusum_h_warning"], "--"), (p["cusum_h_alert"], "-")]))
+    fig, axes = plt.subplots(len(panels), 1, figsize=(11, 2.5 * len(panels)), sharex=True)
     for ax, (col, label, lines) in zip(axes, panels, strict=True):
         for k in range(len(t)):
             left = t.iloc[k]
@@ -336,7 +374,7 @@ def plot_timeline(timeline: pd.DataFrame, p: dict, path: Path, title: str, since
         ax.set_ylabel(label)
         ax.grid(alpha=0.3)
     if timeline["psi_ratio_max"].max() > 3:  # injection : échelle log pour garder les seuils lisibles
-        axes[2].set_yscale("log")
+        axes[-1].set_yscale("log")
     axes[0].set_title(title)
     fig.text(0.01, 0.005, "fond : blanc = ok, jaune = warning, rouge = alert ; trait = seuil d'alerte, tirets = warning"
              + (" ; pointillé = début de l'injection" if since else ""), fontsize=8)

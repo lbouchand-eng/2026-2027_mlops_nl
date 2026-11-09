@@ -54,7 +54,7 @@ docker compose run --rm --build -e DEMO_ARGS=--no-pause demo   # d'une traite
 docker compose down -v                                      # arrêt et remise à zéro du registry
 ```
 
-Sans Docker, après le `dvc pull` : `uv run pytest` (108 tests, aucune donnée requise),
+Sans Docker, après le `dvc pull` : `uv run pytest` (114 tests, aucune donnée requise),
 `bash scripts/demo_setup.sh` puis `uv run uvicorn pga.api:app`. Pour tout reconstruire
 depuis les API publiques plutôt que depuis la Release : `uv run dvc repro` (≈ 40 min).
 
@@ -165,10 +165,11 @@ uv run python -m pga.rollback --reason "..." --api-url http://127.0.0.1:8000   #
 ```
 
 - Signaux sur les 8 derniers tournois : PSI par feature (seuils calibrés sur 2018-2022),
-  z-score du biais par tournoi et ratio de MAE (seuils lus dans les tags du champion).
+  z-score du biais par tournoi et ratio de MAE (seuils lus dans les tags du champion) ;
+  plus un CUSUM du biais par tournoi, cumulé sans fenêtre, contre les petites dérives persistantes.
   Statut `ok` / `warning` / `alert`, avec le code de sortie 0 / 1 / 2.
 - Drift naturel 2023-2024 : 79 ok, 9 warning (biais de +0,65 coup début 2024), 1 alerte.
-  Incident « vent +15 km/h » : alerte en 4 tournois. Le PSI est calculé par rapport aux
+  Incident « vent +15 km/h » : alerte dès la 1re semaine touchée grâce au CUSUM (4 tournois sans). Le PSI est calculé par rapport aux
   données d'entraînement du modèle servi (`reference_profile.json`).
 - Méthode, seuils et résultats : [`docs/monitoring.md`](docs/monitoring.md) ; quoi faire en
   cas d'alerte : [`docs/runbook.md`](docs/runbook.md).

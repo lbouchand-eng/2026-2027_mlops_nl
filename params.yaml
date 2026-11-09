@@ -77,6 +77,12 @@ monitor:
   bias_z_alert: 3.0
   mae_ratio_alert: 1.10           # ≈ 3 erreurs-types de la MAE sur 8 tournois
   fallback_event_bias_sd: 0.85    # si la version servie n'a pas le tag valid_event_bias_sd
+  # CUSUM bilatéral du biais par tournoi (z = biais / σ_tournoi), cumulé sur tout l'historique :
+  # détecte un petit biais persistant que la fenêtre de 8 tournois dilue. k = 0,5 vise un
+  # décalage de 1 σ_tournoi ; seuils vérifiés hors échantillon 2019-2022 (docs/monitoring.md).
+  cusum_k: 0.5
+  cusum_h_warning: 3.0
+  cusum_h_alert: 4.0
 
 trigger:
   consecutive_checks: 3           # contrôles de performance consécutifs hors seuil -> dégradation confirmée
