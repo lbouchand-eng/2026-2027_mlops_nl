@@ -96,3 +96,16 @@ la voit pas. La comparaison sur le journal la refuse
 challenger peut gagner (`test_corrupted_backfill_fools_the_comparison`). Seul le monitoring en
 production le détecte alors ; la règle « dégradation peu après une mise en service → rollback »
 prend le relais.
+
+## 5. Automatisation et alertes
+
+| Mécanisme | Fréquence | Effet |
+|---|---|---|
+| Service Compose `scheduler` (`--profile ops`) | chaque semaine (`TRIGGER_INTERVAL_SECONDS`) | décide **et agit**, recharge l'API |
+| Workflow GitHub `trigger.yml` | lundi 6 h UTC, ou à la demande | décide sans agir |
+
+`PGA_ALERT_WEBHOOK` reçoit les alertes de `monitor check`, les actions du déclencheur et ses échecs.
+Un webhook injoignable n'interrompt jamais une décision.
+
+Limite : le pipeline s'arrête à la saison 2024 (`data-v1`). En production, un `dvc repro` planifié
+devrait précéder le déclencheur pour lui fournir les tournois récents.

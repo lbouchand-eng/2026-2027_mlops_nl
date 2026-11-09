@@ -1,0 +1,53 @@
+name: Déclencheur planifié
+
+# Chaque lundi matin, une fois les tournois du week-end terminés. Le registry du runner est
+# éphémère : ce job décide et alerte sans agir. Le service Compose `scheduler` exécute les décisions.
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  decide:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MLFLOW_DISABLE_AGENT_HINT: "1"
+      PGA_ALERT_WEBHOOK: ${{ secrets.PGA_ALERT_WEBHOOK }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Dépendances
+        run: uv sync --locked
+
+      - name: Données versionnées (Release data-v1)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download data-v1 -p pga-dvcstore.tar.gz -D ..
+          tar xzf ../pga-dvcstore.tar.gz -C ..
+          uv run dvc pull
+
+      - name: Registry (champion + previous)
+        run: bash scripts/demo_setup.sh
+
+      - name: Décision
+        run: |
+          set +e
+          uv run python -m pga.trigger --dry-run | tee decision.txt
+          code=${PIPESTATUS[0]}
+          set -e
+          { echo '### Décision du déclencheur'; echo '```'; cat decision.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          case $code in 0|10|20|30) ;; *) exit "$code" ;; esac
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: decision
+          path: reports/trigger/latest.json

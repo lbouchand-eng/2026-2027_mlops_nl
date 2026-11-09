@@ -13,6 +13,7 @@ x-app: &app
     PGA_MONITORING_DIR: /app/data/monitoring/reports
     PGA_TRIGGER_DIR: /app/data/monitoring/reports
     PGA_API_KEY: ${PGA_API_KEY:-}
+    PGA_ALERT_WEBHOOK: ${PGA_ALERT_WEBHOOK:-}
   volumes:
     - ./data/processed:/app/data/processed:ro
     - registry:/mlflow
@@ -48,6 +49,19 @@ services:
     command: ["mlflow", "server", "--backend-store-uri", "sqlite:////mlflow/mlflow.db", "--host", "0.0.0.0", "--port", "5000"]
     ports:
       - "127.0.0.1:${MLFLOW_PORT:-5001}:5000"   # 5000 est pris par AirPlay sur macOS
+    restart: unless-stopped
+
+  # Exécute les décisions du déclencheur chaque semaine : docker compose --profile ops up -d
+  scheduler:
+    <<: *app
+    profiles: ["ops"]
+    depends_on:
+      api:
+        condition: service_healthy
+    command: ["bash", "scripts/scheduler.sh"]
+    environment:
+      <<: *env
+      TRIGGER_INTERVAL_SECONDS: ${TRIGGER_INTERVAL_SECONDS:-604800}
     restart: unless-stopped
 
   # Registry jetable (mlflow_incident.db dans le conteneur) : n'altère pas la stack.
