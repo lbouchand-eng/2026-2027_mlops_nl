@@ -2,7 +2,7 @@
 # docker compose run --rm --build demo -> démo de l'incident (alerte puis rollback), registry isolé
 #
 # Prérequis : data/processed/ présent (voir « Démarrage rapide » du README).
-# Ports limités à la machine locale : /reload n'a pas d'authentification.
+# Ports limités à la machine locale. Pour protéger /reload : PGA_API_KEY dans .env.
 x-app: &app
   build: .
   image: pga-mlops
@@ -12,6 +12,7 @@ x-app: &app
     PREDICTIONS_LOG: /app/data/monitoring/predictions.parquet
     PGA_MONITORING_DIR: /app/data/monitoring/reports
     PGA_TRIGGER_DIR: /app/data/monitoring/reports
+    PGA_API_KEY: ${PGA_API_KEY:-}
   volumes:
     - ./data/processed:/app/data/processed:ro
     - registry:/mlflow

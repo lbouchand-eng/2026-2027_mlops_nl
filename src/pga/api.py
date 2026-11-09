@@ -2,7 +2,9 @@
 
 - GET  /health  : état et version du modèle servi ;
 - POST /predict : prédiction de `to_par` pour une liste de joueur-tours ;
-- POST /reload  : relit l'alias `champion` du Registry (après rollback ou promotion).
+- POST /reload  : relit l'alias `champion` du Registry (après rollback ou promotion) ;
+                  protégé par l'en-tête `X-API-Key` si `PGA_API_KEY` est défini ;
+- GET  /metrics : métriques Prometheus (requêtes, latence, lignes prédites, version servie).
 
 Le modèle est chargé **par numéro de version** (résolu depuis l'alias) : la version
 annoncée est toujours celle qui prédit. Chaque prédiction est ajoutée au journal
@@ -13,6 +15,7 @@ Lancement : uv run uvicorn pga.api:app --reload
 from __future__ import annotations
 
 import os
+import secrets
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -21,8 +24,9 @@ import mlflow
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from mlflow.tracking import MlflowClient
+from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, Counter, Gauge, Histogram, generate_latest
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from pga.config import MLFLOW_URI, PREDICTIONS_LOG, ROOT, params
@@ -121,9 +125,30 @@ def append_log(path: Path, keys: pd.DataFrame, X: pd.DataFrame, pred: np.ndarray
     entry.to_parquet(path, index=False)
 
 
+class Metrics:
+    """Registre propre à chaque application : `create_app` peut être appelé plusieurs fois."""
+
+    def __init__(self, service: ModelService):
+        self.registry = CollectorRegistry()
+        self.requests = Counter("pga_http_requests", "Requêtes HTTP", ["path", "status"], registry=self.registry)
+        self.rows = Counter("pga_predicted_rows", "Lignes prédites", ["model_version"], registry=self.registry)
+        self.latency = Histogram("pga_predict_latency_seconds", "Durée de l'inférence", registry=self.registry)
+        self.reloads = Counter("pga_reloads", "Rechargements du modèle", ["result"], registry=self.registry)
+        served = Gauge("pga_served_model_version", "Version du modèle servi (0 : aucun)", registry=self.registry)
+        served.set_function(lambda: int(service.version or 0))
+
+
+def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
+    """Sans `PGA_API_KEY`, pas de contrôle : la stack Compose n'écoute que sur la machine locale."""
+    expected = os.environ.get("PGA_API_KEY")
+    if expected and not secrets.compare_digest((x_api_key or "").encode(), expected.encode()):
+        raise HTTPException(401, "clé d'API absente ou invalide (en-tête X-API-Key)")
+
+
 def create_app() -> FastAPI:
     load_dotenv(ROOT / ".env")
     service = ModelService(params()["train"]["registered_model_name"])
+    metrics = Metrics(service)
     log_lock = threading.Lock()
 
     @asynccontextmanager
@@ -135,6 +160,13 @@ def create_app() -> FastAPI:
     app = FastAPI(title="PGA Tour — score vs par", version="1.0", lifespan=lifespan)
     app.state.service = service
 
+    @app.middleware("http")
+    async def count_requests(request: Request, call_next):
+        response = await call_next(request)
+        route = request.scope.get("route")  # chemin déclaré : une URL inconnue ne crée pas de série
+        metrics.requests.labels(route.path if route else "inconnu", str(response.status_code)).inc()
+        return response
+
     @app.get("/health", response_model=Health)
     def health():
         return service.health()
@@ -142,7 +174,9 @@ def create_app() -> FastAPI:
     @app.post("/predict", response_model=PredictResponse)
     def predict(req: PredictRequest):
         keys, X = to_frame(req.rows)
-        pred, version = service.predict(X)
+        with metrics.latency.time():
+            pred, version = service.predict(X)
+        metrics.rows.labels(version).inc(len(pred))
         with log_lock:
             append_log(Path(os.environ.get("PREDICTIONS_LOG", PREDICTIONS_LOG)), keys, X, pred, version)
         return PredictResponse(
@@ -150,12 +184,18 @@ def create_app() -> FastAPI:
             predictions=[Prediction(**k, prediction=float(p)) for k, p in zip(keys.to_dict("records"), pred, strict=True)],
         )
 
-    @app.post("/reload", response_model=Health)
+    @app.post("/reload", response_model=Health, dependencies=[Depends(require_api_key)])
     def reload():
-        if not service.load():
+        loaded = service.load()
+        metrics.reloads.labels("ok" if loaded else "erreur").inc()
+        if not loaded:
             # le modèle précédent (s'il existe) continue d'être servi
             raise HTTPException(503, f"rechargement impossible : {service.error}")
         return service.health()
+
+    @app.get("/metrics")
+    def prometheus():
+        return Response(generate_latest(metrics.registry), media_type=CONTENT_TYPE_LATEST)
 
     return app
 

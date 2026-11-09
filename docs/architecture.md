@@ -64,6 +64,12 @@ Sortie :
 
 Relit l'alias `champion` dans le Registry et renvoie la même réponse que `/health`.
 Appelé après un rollback ou une promotion, sans redémarrer le service.
+Si `PGA_API_KEY` est défini, l'en-tête `X-API-Key` est obligatoire (401 sinon).
+
+### `GET /metrics`
+
+Format Prometheus : `pga_http_requests_total{path,status}`, `pga_predict_latency_seconds`,
+`pga_predicted_rows_total{model_version}`, `pga_reloads_total{result}`, `pga_served_model_version`.
 
 ## Journal des prédictions (entrée du monitoring)
 

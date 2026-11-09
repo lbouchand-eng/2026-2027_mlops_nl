@@ -82,7 +82,8 @@ def log_operation(res: RollbackResult) -> str:
 
 def reload_api(api_url: str, expected: str, timeout: float = 30) -> dict:
     """Demande à l'API de recharger le champion et vérifie la version servie."""
-    r = requests.post(f"{api_url.rstrip('/')}/reload", timeout=timeout)
+    key = os.environ.get("PGA_API_KEY")
+    r = requests.post(f"{api_url.rstrip('/')}/reload", headers={"X-API-Key": key} if key else None, timeout=timeout)
     r.raise_for_status()
     health = requests.get(f"{api_url.rstrip('/')}/health", timeout=timeout).json()
     if str(health.get("model_version")) != expected:
