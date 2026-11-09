@@ -71,6 +71,9 @@ Comparaison juste : la fenêtre de décision est formée des 8 derniers tournois
 encore joués.
 Le challenger est entraîné sur tout ce qui précède, et **champion et challenger sont
 évalués sur cette même fenêtre**. Promotion si la MAE est meilleure et le |biais| pas pire.
+La fenêtre est lue dans le journal de l'API s'il contient au moins une ligne notée pour chacun des
+8 tournois et `monitor.min_rows` lignes au total. Sinon la comparaison utilise la table de features,
+et le tag `decision_source=backfill` le signale.
 Trace : run `retrain as-of …` dans `pga-score`, décision dans `pga-operations`,
 `reports/trigger/latest.json` et une archive par décision exécutée.
 
@@ -88,7 +91,8 @@ du challenger et le profil du champion dépasse le seuil d'alerte, le challenger
 `candidate` (tag `blocked_reason`), même s'il gagne la comparaison.
 
 Limite connue : une corruption de la **cible** ne change pas les features, donc ce garde-fou ne
-la voit pas, et le challenger peut gagner la comparaison
-(`tests/test_trigger.py::test_corrupted_backfill_fools_the_comparison`). Seul le monitoring en
-production le détecte ; la règle « dégradation peu après une mise en service → rollback » prend
-alors le relais.
+la voit pas. La comparaison sur le journal la refuse
+(`tests/test_trigger.py::test_journal_catches_what_the_backfill_hides`), mais sans journal le
+challenger peut gagner (`test_corrupted_backfill_fools_the_comparison`). Seul le monitoring en
+production le détecte alors ; la règle « dégradation peu après une mise en service → rollback »
+prend le relais.

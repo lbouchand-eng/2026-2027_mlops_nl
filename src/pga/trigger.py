@@ -17,6 +17,10 @@ Réentraînement sans fuite et comparable : la fenêtre de décision est formée
 qui précède ; **champion et challenger sont évalués sur cette même fenêtre**. Le challenger
 devient champion si sa MAE est meilleure et son |biais| pas pire.
 
+Cette fenêtre est lue dans le **journal de l'API** dès qu'il la couvre : ce sont les entrées
+réellement vues en production, qu'un backfill ne peut pas réécrire. Sinon, repli sur la table
+de features, tracé par le tag `decision_source`.
+
 Usage : uv run python -m pga.trigger [--as-of 2024-02-08] [--dry-run] [--api-url http://127.0.0.1:8000]
 """
 from __future__ import annotations
@@ -36,7 +40,8 @@ from mlflow.tracking import MlflowClient
 
 from pga import monitor as M
 from pga import rollback as R
-from pga.config import FEATURES_PATH, MLFLOW_URI, REPORTS, ROOT, params
+from pga.config import FEATURES_PATH, MLFLOW_URI, PREDICTIONS_LOG, REPORTS, ROOT, params
+from pga.features import TARGET
 from pga.train import baseline, evaluate, log_model_run, make_model, model_params, set_champion, setup_mlflow, to_xy
 from pga.weather import wind_median_problem
 
@@ -128,6 +133,19 @@ def decision_window(df: pd.DataFrame, as_of: pd.Timestamp, n_events: int) -> tup
     return ids, order.loc[ids].min()
 
 
+def load_journal() -> pd.DataFrame | None:
+    path = Path(os.environ.get("PREDICTIONS_LOG", PREDICTIONS_LOG))
+    return M.load_log(path) if path.exists() else None
+
+
+def journal_window(journal: pd.DataFrame | None, ids: pd.Index, min_rows: int) -> pd.DataFrame | None:
+    """Lignes notées du journal sur la fenêtre de décision ; None si elle n'est pas entièrement couverte."""
+    if journal is None:
+        return None
+    scored = journal[journal["event_id"].isin(ids) & journal[TARGET].notna()]
+    return scored if scored["event_id"].nunique() == len(ids) and len(scored) >= min_rows else None
+
+
 def promotion_blocks(fit: pd.DataFrame, ref: M.Reference, pm: dict, wind_range: list[float] | None) -> list[str]:
     """Motifs de refus d'un challenger : unité du vent, puis écart à l'entraînement du champion."""
     blocks = []
@@ -140,18 +158,22 @@ def promotion_blocks(fit: pd.DataFrame, ref: M.Reference, pm: dict, wind_range: 
 def retrain(df: pd.DataFrame, as_of: pd.Timestamp, champ: M.Champion, p_train: dict, pm: dict, pt: dict,
             data_path: Path, transform: Callable[[pd.DataFrame], pd.DataFrame] | None = None,
             transform_label: str = "aucune", promote: bool = True, guards: bool = True,
-            wind_range: list[float] | None = None) -> dict:
+            wind_range: list[float] | None = None, journal: pd.DataFrame | None = None) -> dict:
     """Entraîne un challenger sur les données antérieures à la fenêtre de décision et le compare
     au champion sur cette fenêtre. `transform` : altération des données d'entraînement et de
     décision (backfill), utilisée par l'incident simulé.
 
     `guards` : refuse la promotion si les données du challenger s'écartent de celles du champion
     (désactivé seulement pour rejouer le scénario d'origine de l'incident).
+
+    `journal` : journal de l'API. S'il couvre la fenêtre, la comparaison s'y fait, sans `transform`.
     """
     ids, start = decision_window(df, as_of, pm["window_events"])
     data = transform(df) if transform else df
     fit = data[(data["year"] >= pt["train_start_year"]) & (data["event_start"] < start)]
-    dec = data[data["event_id"].isin(ids)]
+    logged = journal_window(journal, ids, pm["min_rows"])
+    dec = data[data["event_id"].isin(ids)] if logged is None else logged
+    source = "backfill" if logged is None else "journal"
     if fit.empty or dec.empty:
         raise ValueError(f"données insuffisantes au {as_of.date()} : fit={len(fit)}, décision={len(dec)}")
 
@@ -167,7 +189,7 @@ def retrain(df: pd.DataFrame, as_of: pd.Timestamp, champ: M.Champion, p_train: d
     params_ = model_params(p_train) | {"fit_from": str(fit["event_start"].min().date()), "fit_until": str(start.date()),
                                         "decision_events": len(ids), "as_of": str(as_of.date())}
     tags = {"trigger": "retrain", "as_of": str(as_of.date()), "compared_to": f"v{champ.version}",
-            "data_transform": transform_label}
+            "data_transform": transform_label, "decision_source": source}
     with mlflow.start_run(run_name=f"retrain as-of {as_of.date()}"):
         run_id, version = log_model_run(challenger, X_dec.head(5), params_, metrics, data_path, name, True, fit, tags)
         client = MlflowClient()
@@ -186,11 +208,13 @@ def retrain(df: pd.DataFrame, as_of: pd.Timestamp, champ: M.Champion, p_train: d
             client.set_model_version_tag(name, version, "blocked_reason", " ; ".join(blocks)[:500])
         reason = (f"challenger MAE {m_ch['mae']:.3f} / biais {m_ch['bias']:+.3f} vs champion v{champ.version} "
                   f"MAE {m_champ['mae']:.3f} / biais {m_champ['bias']:+.3f} sur {len(ids)} tournois")
+        if logged is not None:
+            reason += " du journal de l'API"
         if blocks:
             reason += " | promotion bloquée : " + " ; ".join(blocks)
         mlflow.set_tags({"registered_version": version, "promoted": str(promoted).lower(), "promotion_reason": reason})
     return {"version": version, "promoted": promoted, "reason": reason, "run_id": run_id, "blocked": blocks,
-            "challenger": m_ch, "champion": m_champ, "fit_until": str(start.date())}
+            "challenger": m_ch, "champion": m_champ, "fit_until": str(start.date()), "decision_source": source}
 
 
 # --- exécution -------------------------------------------------------------------------------
@@ -233,7 +257,8 @@ def run_trigger(as_of: pd.Timestamp | None = None, dry_run: bool = False, api_ur
     if not dry_run and decision.action == "retrain":
         setup_mlflow(os.environ.get("MLFLOW_TRACKING_URI", MLFLOW_URI))
         wind_range = all_p.get("weather", {}).get("wind_median_kmh")
-        outcome = {"executed": True} | retrain(df, as_of, champ, p_train, pm, pt, data_path, wind_range=wind_range)
+        outcome = {"executed": True} | retrain(df, as_of, champ, p_train, pm, pt, data_path, wind_range=wind_range,
+                                               journal=load_journal())
     elif not dry_run and decision.action == "rollback":
         res = R.rollback(client, champ.name, reason=decision.reason[:500])
         outcome = {"executed": True, "from_version": res.from_version, "to_version": res.to_version}

@@ -15,6 +15,7 @@ Scénario (rapport : docs/incident.md) :
 Mode --guards (après correctifs, reports/incident_guarded/) : le même backfill est d'abord refusé
 à la promotion ; on le force ensuite pour vérifier la seconde ligne de défense, le PSI calculé
 sur les données d'entraînement du modèle servi. `retry` retente le backfill et imprime le refus.
+L'étape 2_journal isole la comparaison faite sur le journal de l'API, sans les autres garde-fous.
 
 Registry isolé (mlflow_incident.db, mlartifacts_incident/) : le scénario est rejouable sans
 toucher au registry principal.
@@ -113,9 +114,15 @@ def step_setup(args):
                             "promoted_at": "2023-01-01 (mise en service simulée)"})
 
 
-def attempt(p, df, champ, guards: bool) -> dict:
+def attempt(p, df, champ, guards: bool, journal: pd.DataFrame | None = None) -> dict:
     return TR.retrain(df, CORRUPT_AT, champ, p["train"], p["monitor"], p["trigger"], FEATURES_PATH, transform=corrupt,
-                      transform_label=LABEL, guards=guards, wind_range=p["weather"]["wind_median_kmh"])
+                      transform_label=LABEL, guards=guards, wind_range=p["weather"]["wind_median_kmh"], journal=journal)
+
+
+def production_journal(df: pd.DataFrame, p: dict) -> pd.DataFrame:
+    """Ce que l'API a vu sur la fenêtre de décision : features saines, scores réels."""
+    ids, _ = TR.decision_window(df, CORRUPT_AT, p["monitor"]["window_events"])
+    return df[df["event_id"].isin(ids)]
 
 
 def step_retry(args):
@@ -137,6 +144,10 @@ def step_corrupt(args):
         blocked = attempt(p, df, champ, guards=True)
         save("2_blocked", {"date": str(CORRUPT_AT.date()), "challenger": blocked["version"], "promoted": blocked["promoted"],
                            "reason": blocked["reason"], "blocked": blocked["blocked"]})
+        logged = attempt(p, df, champ, guards=False, journal=production_journal(df, p))
+        save("2_journal", {"date": str(CORRUPT_AT.date()), "challenger": logged["version"], "promoted": logged["promoted"],
+                           "reason": logged["reason"], "decision_source": logged["decision_source"],
+                           "challenger_metrics": logged["challenger"], "champion_metrics": logged["champion"]})
     res = attempt(p, df, champ, guards=False)
     return save("2_corrupt", {"date": str(CORRUPT_AT.date()), "challenger": res["version"], "promoted": res["promoted"],
                               "reason": res["reason"], "challenger_metrics": res["challenger"],
@@ -193,6 +204,7 @@ def step_summary(args):
     steps = {f.stem: json.loads(f.read_text()) for f in sorted(OUT.glob("[1-5]_*.json"))}
     if not GUARDS:
         steps.pop("2_blocked", None)
+        steps.pop("2_journal", None)
     return save("summary", {"scenario": LABEL, "corrupted_at": str(CORRUPT_AT.date()), "guards": GUARDS, "steps": steps})
 
 

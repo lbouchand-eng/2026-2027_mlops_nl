@@ -124,9 +124,8 @@ def test_worse_challenger_is_not_promoted(setup):
 
 
 def test_corrupted_backfill_fools_the_comparison(setup):
-    """Limite assumée (base de l'incident simulé) : si la fenêtre de décision est corrompue
-    comme les données d'entraînement, le challenger corrompu paraît meilleur et est promu.
-    Seul le monitoring en production, sur données saines, peut le détecter."""
+    """Limite sans journal (base de l'incident simulé) : si la fenêtre de décision est corrompue
+    comme les données d'entraînement, le challenger corrompu paraît meilleur et est promu."""
     def corrupt(d):
         d = d.copy()
         d["to_par"] = d["to_par"] + 5
@@ -160,6 +159,44 @@ def test_guards_off_replays_the_original_incident(setup):
     res = TR.retrain(setup["df"], AS_OF, setup["champ"], P, MP, PT | {"bias_tolerance": 5.0}, setup["path"],
                      transform=wind_in_ms, transform_label="vent en m/s", guards=False)
     assert res["promoted"] and res["blocked"] == []
+
+
+def add_five_to_target(d):
+    d = d.copy()
+    d["to_par"] = d["to_par"] + 5
+    return d
+
+
+def window(df):
+    ids, _ = TR.decision_window(df, AS_OF, MP["window_events"])
+    return ids, df[df.event_id.isin(ids)]
+
+
+def test_journal_catches_what_the_backfill_hides(setup):
+    """Même backfill que test_corrupted_backfill_fools_the_comparison, jugé sur ce que la production a vu."""
+    _, journal = window(setup["df"])
+    res = TR.retrain(setup["df"], AS_OF, setup["champ"], P, MP | {"min_rows": 1}, PT | {"bias_tolerance": 5.0}, setup["path"],
+                     transform=add_five_to_target, transform_label="to_par+5", journal=journal)
+    assert not res["promoted"] and res["decision_source"] == "journal"
+    assert mlflow.get_run(res["run_id"]).data.tags["decision_source"] == "journal"
+
+
+def test_journal_on_clean_data_changes_nothing(setup):
+    _, journal = window(setup["df"])
+    mp = MP | {"min_rows": 1}
+    from_table = TR.retrain(setup["df"], AS_OF, setup["champ"], P, mp, PT, setup["path"])
+    from_journal = TR.retrain(setup["df"], AS_OF, setup["champ"], P, mp, PT, setup["path"], journal=journal)
+    assert from_table["decision_source"] == "backfill"
+    assert from_journal["challenger"]["mae"] == pytest.approx(from_table["challenger"]["mae"])
+
+
+def test_partial_journal_is_not_used(setup):
+    ids, journal = window(setup["df"])
+    assert TR.journal_window(journal, ids, 1) is not None
+    assert TR.journal_window(journal[journal.event_id != ids[0]], ids, 1) is None   # un tournoi manque
+    assert TR.journal_window(journal, ids, len(journal) + 1) is None                # trop peu de lignes
+    assert TR.journal_window(journal.assign(to_par=float("nan")), ids, 1) is None   # scores pas encore connus
+    assert TR.journal_window(None, ids, 1) is None
 
 
 def test_data_incident_never_trains(setup, monkeypatch):

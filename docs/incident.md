@@ -100,7 +100,7 @@ toujours sous la MAE de validation.*
 | 2 | **Référence du PSI = données d'entraînement du modèle servi** : chaque run enregistre `reference_profile.json`, relu par le monitoring. Repli sur `monitor.reference_years` pour les versions plus anciennes | fait |
 | 3 | **Promotion bloquée** si les données du challenger s'écartent du profil du champion (`trigger.promotion_blocks`) ; la version reste `candidate` avec le tag `blocked_reason` | fait |
 | 4 | **Règle du déclencheur** : une alerte PSI peu après une mise en service désigne ce déploiement, donc rollback | fait |
-| 5 | **Validation hors backfill** : décider la promotion sur les prédictions déjà journalisées, et non sur le backfill | à faire |
+| 5 | **Validation hors backfill** : champion et challenger sont comparés sur le journal de l'API dès qu'il couvre la fenêtre de décision (`trigger.journal_window`), tag `decision_source` | fait |
 
 ## 9. Le même incident après correctifs
 
@@ -114,6 +114,11 @@ résultats sont inchangés.
 | Si on le force malgré tout : alertes PSI | 0 sur 19 contrôles | **19 sur 19** |
 | Première alerte | 28 mars | **7 mars**, dès le premier tournoi |
 | Rollback | 25 mars, après 4 tournois | **11 mars**, après le premier tournoi |
+
+La comparaison sur le journal (action 5) suffit à elle seule à refuser ce backfill, sans les autres
+garde-fous (`2_journal.json`). Sur les entrées vues en production, le challenger est moins bon :
+MAE 2,652 contre 2,268, biais +1,65 contre +0,22, alors qu'il gagnait sur la fenêtre corrompue
+(2,261 contre 2,316).
 
 Non-régression : le drift naturel 2023-2024 donne toujours 79 ok, 9 warning, 1 alerte, et le
 réentraînement légitime du 5 février 2024 reste promu (MAE 2,326 contre 2,362).

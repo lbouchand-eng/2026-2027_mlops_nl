@@ -176,7 +176,8 @@ uv run python -m pga.trigger --dry-run                 # rien (0) / réentraîne
 uv run python -m pga.trigger --as-of 2024-02-05        # simulation : réentraînement après la dérive de janvier 2024
 ```
 
-Champion et challenger sont comparés sur les 8 mêmes tournois récents. Une dégradation ou
+Champion et challenger sont comparés sur les 8 mêmes tournois récents, lus dans le journal de
+l'API quand il les couvre (entrées réellement servies, qu'un backfill ne peut pas réécrire). Une dégradation ou
 une alerte PSI peu après une mise en service déclenche un rollback, une alerte PSI ne
 déclenche jamais de réentraînement. Un challenger dont les données s'écartent de celles du
 champion n'est pas promu. Détails et résultats : [`docs/runbook.md`](docs/runbook.md).
@@ -204,7 +205,8 @@ z = 5,9), `trigger` → rollback et rechargement de l'API, mêmes requêtes → 
 
 Après correctifs, le même backfill est refusé à la promotion. S'il est forcé, le PSI alerte dès
 le premier tournoi et le rollback a lieu le 11 mars au lieu du 25 (19 alertes PSI sur 19
-contrôles, contre 0 auparavant). La dernière étape de la démo montre ce refus.
+contrôles, contre 0 auparavant). Comparé sur le journal de l'API, le challenger corrompu perd
+aussi à lui seul (MAE 2,652 contre 2,268). La dernière étape de la démo montre le refus.
 
 ## Remote DVC (stockage local)
 
