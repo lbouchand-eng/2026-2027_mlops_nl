@@ -1,0 +1,69 @@
+# docker compose up --build   -> API sur :8000, interface MLflow sur :5001
+# docker compose run --rm demo -> démo de l'incident (alerte puis rollback), registry isolé
+#
+# Prérequis : data/processed/ présent (voir « Démarrage rapide » du README).
+# Ports limités à la machine locale : /reload n'a pas d'authentification.
+x-app: &app
+  build: .
+  image: pga-mlops
+  environment: &env
+    MLFLOW_TRACKING_URI: sqlite:////mlflow/mlflow.db
+    MLFLOW_DISABLE_AGENT_HINT: "1"
+    PREDICTIONS_LOG: /app/data/monitoring/predictions.parquet
+    PGA_MONITORING_DIR: /app/data/monitoring/reports
+    PGA_TRIGGER_DIR: /app/data/monitoring/reports
+  volumes:
+    - ./data/processed:/app/data/processed:ro
+    - registry:/mlflow
+    - artifacts:/app/mlartifacts   # même chemin partout : le registry y référence les modèles
+    - monitoring:/app/data/monitoring
+
+services:
+  # Crée champion + previous au premier lancement ; ne fait rien ensuite.
+  bootstrap:
+    <<: *app
+    command: ["bash", "scripts/demo_setup.sh"]
+
+  api:
+    <<: *app
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs localhost:8000/health | grep -q '\"status\":\"ok\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  mlflow:
+    <<: *app
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    command: ["mlflow", "server", "--backend-store-uri", "sqlite:////mlflow/mlflow.db", "--host", "0.0.0.0", "--port", "5000"]
+    ports:
+      - "127.0.0.1:${MLFLOW_PORT:-5001}:5000"   # 5000 est pris par AirPlay sur macOS
+    restart: unless-stopped
+
+  # Registry jetable (mlflow_incident.db dans le conteneur) : n'altère pas la stack.
+  demo:
+    <<: *app
+    profiles: ["demo"]
+    command: ["bash", "-c", "bash scripts/demo.sh --prepare && bash scripts/demo.sh $${DEMO_ARGS:-}"]
+    environment:
+      <<: *env
+      PORT: "8010"
+      DEMO_ARGS: ${DEMO_ARGS:-}
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./data/processed:/app/data/processed:ro
+
+volumes:
+  registry:
+  artifacts:
+  monitoring:

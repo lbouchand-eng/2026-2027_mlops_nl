@@ -22,28 +22,49 @@ secondaires et protocole : [`docs/metric.md`](docs/metric.md).
 
 ## Démarrage rapide (clone neuf)
 
-Prérequis : [uv](https://docs.astral.sh/uv/) et git. Aucune clé d'API, aucun secret.
+Prérequis : git, [uv](https://docs.astral.sh/uv/), [gh](https://cli.github.com/)
+(authentifié avec un compte ayant accès au dépôt) et Docker. Aucune clé d'API, aucun secret.
 
 ```bash
 git clone https://github.com/lbouchand-eng/2026-2027_mlops_nl.git && cd 2026-2027_mlops_nl
-uv sync                                  # Python 3.12 et dépendances (verrouillées par uv.lock)
-uv run pytest                            # 80 tests, aucune donnée requise
-uv run dvc repro                         # données depuis les API publiques + features + entraînement (≈ 40 min)
-bash scripts/demo_setup.sh               # 2e version du modèle : champion + previous (pour le rollback)
-uv run uvicorn pga.api:app               # API sur http://127.0.0.1:8000/docs
+gh release download data-v1 -p pga-dvcstore.tar.gz -D ..    # données versionnées (store DVC)
+tar xzf ../pga-dvcstore.tar.gz -C ..                        # à côté du dépôt : remote DVC par défaut
+uv sync && uv run dvc pull                                  # data/ aux hash exacts de dvc.lock
+docker compose up --build                                   # registry (champion + previous), API, MLflow
 ```
 
-**Plus rapide**, si on vous a transmis le dossier `pga-dvcstore` (≈ 130 Mo) : placez-le à
-côté du dépôt et remplacez `dvc repro` par `uv run dvc pull && uv run python -m pga.train`
-(après un `pull`, DVC considère l'étape `train` à jour : il faut lancer l'entraînement
-directement pour créer le modèle dans le MLflow local, qui n'est pas versionné).
+Le premier lancement entraîne les deux versions du modèle (≈ 1 min). Ensuite :
+
+| Service | Adresse |
+|---|---|
+| API (Swagger) | http://127.0.0.1:8000/docs |
+| Interface MLflow | http://127.0.0.1:5001 |
+
+```bash
+# Une prédiction, puis un rollback sur le service en cours d'exécution
+curl -s -X POST localhost:8000/predict -H 'content-type: application/json' \
+  -d '{"rows":[{"event_id":"401580344","player_id":"9478","round":1,"form_ewm":-0.8,"fc_wind_mean":14.2}]}'
+docker compose exec api python -m pga.rollback --reason "essai" --api-url http://127.0.0.1:8000
+curl -s localhost:8000/health
+
+# Démo complète de l'incident : requêtes -> alerte -> rollback -> retour à la normale
+docker compose run --rm demo                                # pause à chaque étape (Entrée)
+docker compose run --rm -e DEMO_ARGS=--no-pause demo        # d'une traite
+
+docker compose down -v                                      # arrêt et remise à zéro du registry
+```
+
+Sans Docker, après le `dvc pull` : `uv run pytest` (80 tests, aucune donnée requise),
+`bash scripts/demo_setup.sh` puis `uv run uvicorn pga.api:app`. Pour tout reconstruire
+depuis les API publiques plutôt que depuis la Release : `uv run dvc repro` (≈ 40 min).
 
 Chaque étape du pipeline est idempotente : les réponses brutes des API sont gardées sous
 `data/raw/` et réutilisées, donc un `dvc repro` interrompu se relance sans perte.
 `uv run python scripts/registry_status.py` affiche les versions du modèle et leurs alias.
 
 CI (`.github/workflows/ci.yml`) : à chaque PR et push sur `main`, `uv sync --locked`,
-`ruff check` puis `pytest`. Les tests n'ont besoin ni des données DVC ni du MLflow local.
+`ruff check` puis `pytest` (sans données DVC ni MLflow local), et build de l'image Docker
+avec vérification que le service démarre.
 
 ## Pipeline de données (`dvc.yaml`)
 
@@ -190,8 +211,8 @@ Deux façons d'obtenir les données sur une nouvelle machine :
 1. **Reconstruire depuis les API** (aucune clé, ≈ 30-40 min) : `uv run dvc repro`.
    Les sources sont gratuites et les étapes idempotentes. Si une API a modifié ses
    données entre-temps, `uv run dvc status` le signale (hash différent du `dvc.lock`).
-2. **Copier le stockage** : récupérer le dossier `pga-dvcstore` (≈ 130 Mo, zip partagé
-   entre membres), le placer à côté du dépôt, puis `uv run dvc pull`.
+2. **Récupérer le stockage** : l'archive `pga-dvcstore.tar.gz` de la Release `data-v1` du
+   dépôt (privée comme lui), à extraire à côté du dépôt, puis `uv run dvc pull`.
 
 Pour utiliser un autre emplacement sans toucher au dépôt :
 `uv run dvc remote modify --local localstore url /chemin/vers/pga-dvcstore`.
