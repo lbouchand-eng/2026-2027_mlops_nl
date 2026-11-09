@@ -1,15 +1,14 @@
 """Tests du déclencheur : table de décision, réentraînement sans fuite, promotion, rollback."""
 import mlflow
-import numpy as np
 import pandas as pd
 import pytest
 from mlflow.tracking import MlflowClient
+from test_monitor import MP, make_events
+from test_train import YEARS, P, make_features
 
 from pga import monitor as M
-from pga import trigger as TR
 from pga import train as T
-from test_monitor import MP, make_events
-from test_train import P, YEARS, make_features
+from pga import trigger as TR
 
 PT = {"consecutive_checks": 3, "recent_promotion_days": 60, "train_start_year": 2021, "bias_tolerance": 0.0}
 AS_OF = pd.Timestamp("2023-03-15", tz="UTC")

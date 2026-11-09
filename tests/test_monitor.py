@@ -6,11 +6,11 @@ import mlflow
 import numpy as np
 import pandas as pd
 import pytest
+from test_train import YEARS, P, make_features
 
 from pga import monitor as M
 from pga import train as T
 from pga.features import FEATURES, TARGET
-from test_train import P, YEARS, make_features
 
 MP = {
     "reference_years": [2021, 2022],

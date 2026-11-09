@@ -30,7 +30,7 @@ def make_rounds() -> pd.DataFrame:
     }
     for (year, rnd), vals in scores.items():
         start = pd.Timestamp(f"{year}-03-05", tz="UTC")
-        for pid, v in zip("ABC", vals):
+        for pid, v in zip("ABC", vals, strict=True):
             rows.append(
                 {
                     "event_id": f"E{year}",

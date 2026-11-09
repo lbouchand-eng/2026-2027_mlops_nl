@@ -308,7 +308,7 @@ def plot_timeline(timeline: pd.DataFrame, p: dict, path: Path, title: str, since
         ("mae_ratio", "MAE / MAE validation", [(p["mae_ratio_alert"], "-")]),
         ("psi_ratio_max", "PSI / seuil d'alerte (max)", [(1.0, "-")]),
     ]
-    for ax, (col, label, lines) in zip(axes, panels):
+    for ax, (col, label, lines) in zip(axes, panels, strict=True):
         for k in range(len(t)):
             left = t.iloc[k]
             right = t.iloc[k + 1] if k + 1 < len(t) else left + pd.Timedelta(days=7)
@@ -376,7 +376,9 @@ def cmd_replay(args, p: dict, name: str) -> int:
     label = args.name or ("incident" if args.inject else "replay")
     MONITORING.mkdir(parents=True, exist_ok=True)
     timeline.to_csv(MONITORING / f"timeline_{label}.csv", index=False)
-    title = f"Monitoring {args.years[0]}-{args.years[1]} — modèle v{champ.version}" + (f" — injection {args.inject} dès {args.since}" if args.inject else "")
+    title = f"Monitoring {args.years[0]}-{args.years[1]} — modèle v{champ.version}"
+    if args.inject:
+        title += f" — injection {args.inject} dès {args.since}"
     plot_timeline(timeline, p, MONITORING / f"timeline_{label}.png", title, args.since if args.inject else None)
     tags = {"mode": f"replay:{label}", "years": f"{args.years[0]}-{args.years[1]}", "inject": args.inject or "none",
             "inject_since": args.since or "none"}
@@ -466,9 +468,9 @@ def cmd_backfill(args, p: dict, name: str) -> int:
             continue
         rp = run.data.params
         model_p = {k.removeprefix("model_"): yaml.safe_load(v) for k, v in rp.items() if k.startswith("model_")}
-        years = lambda k: tuple(int(x) for x in rp[k].split("-"))  # noqa: E731
-        m = make_model({"model": model_p, "random_state": int(rp["random_state"])}).fit(*to_xy(select(df, years("train_years"))))
-        va = select(df, years("valid_years"))
+        years = {k: tuple(int(x) for x in rp[k].split("-")) for k in ("train_years", "valid_years")}
+        m = make_model({"model": model_p, "random_state": int(rp["random_state"])}).fit(*to_xy(select(df, years["train_years"])))
+        va = select(df, years["valid_years"])
         sd = event_bias_sd(va["event_id"], m.predict(to_xy(va)[0]) - va[TARGET].to_numpy())
         client.set_model_version_tag(name, mv.version, "valid_event_bias_sd", f"{sd:.6f}")
         print(f"v{mv.version} : valid_event_bias_sd = {sd:.4f}")

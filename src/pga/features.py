@@ -20,7 +20,8 @@ KEYS = ["event_id", "player_id", "round"]
 TARGET = "to_par"
 META = ["event_name", "event_start", "tee_time_utc", "player_name", "course_id", "year", "split"]
 
-FORM = ["form_rel_short", "form_rel_long", "form_rel_xlong", "form_ewm", "form_ewm_slow", "n_rounds_hist", "days_since_last", "is_new_player"]
+FORM = ["form_rel_short", "form_rel_long", "form_rel_xlong", "form_ewm", "form_ewm_slow",
+        "n_rounds_hist", "days_since_last", "is_new_player"]
 COURSE = ["course_rel_mean", "course_n_rounds", "course_diff_mean", "course_diff_std", "is_new_course"]
 WEATHER = ["fc_temp_mean", "fc_humidity_mean", "fc_precip_sum", "fc_wind_mean", "fc_gust_max"]
 CONTEXT = ["round", "major", "multi_course", "yards", "host_par"]

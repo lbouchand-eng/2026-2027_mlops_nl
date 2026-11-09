@@ -147,7 +147,7 @@ def create_app() -> FastAPI:
             append_log(Path(os.environ.get("PREDICTIONS_LOG", PREDICTIONS_LOG)), keys, X, pred, version)
         return PredictResponse(
             model_version=version,
-            predictions=[Prediction(**k, prediction=float(p)) for k, p in zip(keys.to_dict("records"), pred)],
+            predictions=[Prediction(**k, prediction=float(p)) for k, p in zip(keys.to_dict("records"), pred, strict=True)],
         )
 
     @app.post("/reload", response_model=Health)

@@ -120,7 +120,8 @@ def main() -> None:
     print("% de tours avec météo (prévue / observée) :")
     print(cov.to_string())
     print("écart observé - prévu, vent moyen (km/h) par année :")
-    print(df.join(year, on=["event_id", "player_id", "round"]).groupby("year").diff_wind_mean.describe()[["mean", "std"]].round(2).to_string())
+    by_year = df.join(year, on=["event_id", "player_id", "round"]).groupby("year").diff_wind_mean
+    print(by_year.describe()[["mean", "std"]].round(2).to_string())
     if failed:
         sys.exit(f"{len(failed)} appel(s) en échec : relancer pour réessayer.")
 

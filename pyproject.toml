@@ -24,7 +24,10 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = [
+    "pytest>=8",
+    "ruff>=0.17.4",
+]
 
 [build-system]
 requires = ["uv_build>=0.8,<0.13"]
@@ -35,3 +38,13 @@ module-name = "pga"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 140
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]   # pycodestyle, pyflakes, imports triés, bugbear
+
+[tool.ruff.lint.isort]
+known-first-party = ["pga"]
