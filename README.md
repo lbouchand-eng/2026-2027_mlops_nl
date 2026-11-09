@@ -147,6 +147,10 @@ curl -s -X POST localhost:8000/reload        # après un rollback ou une promoti
 - `/reload` relit l'alias sans redémarrer ; en cas d'échec, l'ancien modèle reste servi.
 - Chaque prédiction est ajoutée à `data/monitoring/predictions.parquet` (variable
   `PREDICTIONS_LOG`), relu par le monitoring. Contrat complet : `docs/architecture.md`.
+- `/reload` exige l'en-tête `X-API-Key` si `PGA_API_KEY` est défini dans `.env` ; le rollback et
+  le déclencheur l'envoient. Sans cette variable, pas de contrôle (ports limités à la machine locale).
+- `GET /metrics` (format Prometheus) : requêtes par route et statut, latence de l'inférence,
+  lignes prédites par version, rechargements, version servie.
 - Tests d'intégration (`tests/test_api.py`) : vrai modèle entraîné dans un MLflow
   temporaire, vérification de la version servie, du journal, des 422/503 et du
   rechargement après déplacement de l'alias.

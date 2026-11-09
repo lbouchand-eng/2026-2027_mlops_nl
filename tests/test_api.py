@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from mlflow.tracking import MlflowClient
 from test_train import YEARS, P, make_features
 
+from pga import rollback as R
 from pga import train as T
 from pga.api import create_app
 from pga.config import params
@@ -101,6 +102,47 @@ def test_reload_follows_alias_rollback(client, env):
     assert client.post("/reload").json()["model_version"] == env["v2"]
     res = client.post("/predict", json={"rows": rows(env["df"], 1)})
     assert res.json()["model_version"] == env["v2"]
+
+
+def metric(client, line: str) -> float:
+    found = [row for row in client.get("/metrics").text.splitlines() if row.startswith(line + " ")]
+    return float(found[0].split()[-1]) if found else 0.0
+
+
+def test_metrics_follow_traffic_and_reload(client, env):
+    client.post("/predict", json={"rows": rows(env["df"], 3)})
+    client.post("/predict", json={"rows": [{"event_id": "E", "player_id": "P", "round": 7}]})
+    client.get("/introuvable")
+    assert metric(client, f'pga_predicted_rows_total{{model_version="{env["v1"]}"}}') == 3
+    assert metric(client, 'pga_http_requests_total{path="/predict",status="200"}') == 1
+    assert metric(client, 'pga_http_requests_total{path="/predict",status="422"}') == 1
+    assert metric(client, 'pga_http_requests_total{path="inconnu",status="404"}') == 1
+    assert metric(client, "pga_predict_latency_seconds_count") == 1
+    assert metric(client, "pga_served_model_version") == float(env["v1"])
+
+    MlflowClient().set_registered_model_alias(NAME, "champion", env["v2"])
+    client.post("/reload")
+    assert metric(client, "pga_served_model_version") == float(env["v2"])
+    assert metric(client, 'pga_reloads_total{result="ok"}') == 1
+
+
+@pytest.mark.parametrize("headers, expected", [({}, 401), ({"X-API-Key": "mauvaise"}, 401), ({"X-API-Key": "s3cret"}, 200)])
+def test_reload_requires_the_key_when_configured(client, monkeypatch, headers, expected):
+    monkeypatch.setenv("PGA_API_KEY", "s3cret")
+    assert client.post("/reload", headers=headers).status_code == expected
+
+
+def test_predict_stays_open_when_a_key_is_configured(client, env, monkeypatch):
+    monkeypatch.setenv("PGA_API_KEY", "s3cret")
+    assert client.post("/predict", json={"rows": rows(env["df"], 1)}).status_code == 200
+
+
+def test_rollback_sends_the_key(client, env, monkeypatch):
+    """Le rollback recharge une API protégée."""
+    monkeypatch.setenv("PGA_API_KEY", "s3cret")
+    monkeypatch.setattr(R.requests, "post", lambda url, headers, timeout: client.post("/reload", headers=headers))
+    monkeypatch.setattr(R.requests, "get", lambda url, timeout: client.get("/health"))
+    assert R.reload_api("http://api", env["v1"])["model_version"] == env["v1"]
 
 
 def test_no_model_is_503(tmp_path, monkeypatch):
