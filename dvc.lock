@@ -116,12 +116,15 @@ stages:
       size: 1247379
     - path: src/pga/weather.py
       hash: md5
-      md5: de0c8ea58c2e5a83f8701498a0227947
-      size: 5682
+      md5: 7c207a2c7cc3d2a2754c4ffd33c27b39
+      size: 6588
     params:
       params.yaml:
         weather:
           window_hours: 5
+          wind_median_kmh:
+          - 6
+          - 20
           hourly:
           - temperature_2m
           - relative_humidity_2m
@@ -189,8 +192,8 @@ stages:
       size: 9920370
     - path: src/pga/train.py
       hash: md5
-      md5: 6c97c33add3f15bf9daa99083d620be2
-      size: 12975
+      md5: 75031589ce1fb8f2187435216395ec6d
+      size: 13267
     params:
       params.yaml:
         train:

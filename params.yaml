@@ -20,6 +20,7 @@ rounds:
 
 weather:
   window_hours: 5           # durée de la fenêtre de jeu à partir du teeTime
+  wind_median_kmh: [6, 20]  # médiane acceptée (9,2 à 12,1 selon les années ; un backfill en m/s donne ≈ 3)
   hourly:
     - temperature_2m
     - relative_humidity_2m
@@ -58,7 +59,7 @@ train:
     l2_regularization: 1.0
 
 monitor:
-  reference_years: [2018, 2022]   # = refit_years du modèle servi
+  reference_years: [2018, 2022]   # repli si le modèle servi n'a pas de reference_profile.json
   window_events: 8                # fenêtre glissante (≈ 2 mois de saison)
   min_rows: 500                   # en dessous : signaux non évalués (journal court, scores absents)
   psi_bins: 10

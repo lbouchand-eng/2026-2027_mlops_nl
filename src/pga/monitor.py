@@ -1,8 +1,8 @@
 """Monitoring du drift (méthode et seuils : docs/monitoring.md).
 
 Deux familles de signaux, calculées sur une fenêtre glissante des N derniers tournois :
-- drift des données : PSI de chaque feature surveillée vs la période de référence
-  (disponible dès la prédiction, sans attendre les scores) ;
+- drift des données : PSI de chaque feature surveillée vs les données d'entraînement du
+  modèle servi (disponible dès la prédiction, sans attendre les scores) ;
 - drift de performance : biais moyen par tournoi rapporté à son bruit de référence
   (z-score) et MAE rapportée à la MAE de validation du champion (scores nécessaires).
 Les seuils de performance sont lus dans les tags de la version **champion** du Registry.
@@ -33,6 +33,7 @@ from mlflow.tracking import MlflowClient
 
 from pga.config import FEATURES_PATH, MLFLOW_URI, PREDICTIONS_LOG, REPORTS, ROOT, ROUNDS, params
 from pga.features import FEATURES, TARGET
+from pga.profile import PROFILE_ARTIFACT, make_edges, shares
 
 EXPERIMENT = "pga-monitoring"
 MONITORING = Path(os.environ.get("PGA_MONITORING_DIR", REPORTS / "monitoring"))  # surchargeable (démo)
@@ -42,47 +43,50 @@ KEYS = ["event_id", "player_id", "round"]
 
 # --- signaux ------------------------------------------------------------------------------
 
-def make_edges(ref, bins: int = 10) -> np.ndarray:
-    """Points de coupure internes = quantiles de la référence (bornes extrêmes ouvertes)."""
-    ref = np.asarray(ref, dtype=float)
-    ref = ref[~np.isnan(ref)]
-    if len(ref) == 0:
-        return np.array([])
-    return np.unique(np.quantile(ref, np.linspace(0, 1, bins + 1))[1:-1])
-
-
-def _shares(x, edges) -> np.ndarray:
-    x = np.asarray(x, dtype=float)
-    x = x[~np.isnan(x)]
-    counts = np.bincount(np.searchsorted(edges, x, side="right"), minlength=len(edges) + 1)
-    return np.clip(counts / max(len(x), 1), 1e-4, None)
+def psi_from_shares(pr: np.ndarray | None, cur, edges: np.ndarray) -> float:
+    """PSI de `cur` par rapport à une référence déjà résumée (NaN si l'un des deux est vide)."""
+    cur = np.asarray(cur, dtype=float)
+    if pr is None or np.isnan(cur).all():
+        return float("nan")
+    pc = shares(cur, edges)
+    return float(np.sum((pc - pr) * np.log(pc / pr)))
 
 
 def psi(ref, cur, bins: int = 10, edges: np.ndarray | None = None) -> float:
     """Population Stability Index de `cur` par rapport à `ref` (NaN ignorés)."""
-    cur = np.asarray(cur, dtype=float)
-    if np.isnan(cur).all() or np.isnan(np.asarray(ref, dtype=float)).all():
+    ref = np.asarray(ref, dtype=float)
+    if np.isnan(ref).all():
         return float("nan")
     edges = make_edges(ref, bins) if edges is None else edges
-    pr, pc = _shares(ref, edges), _shares(cur, edges)
-    return float(np.sum((pc - pr) * np.log(pc / pr)))
+    return psi_from_shares(shares(ref, edges), cur, edges)
 
 
 @dataclass
 class Reference:
-    """Distribution de référence précalculée (bins + parts par feature)."""
+    """Distribution de référence (bins + parts par feature), issue de données ou d'un profil."""
 
-    data: pd.DataFrame
+    data: pd.DataFrame | None
     features: list[str]
     bins: int
     thresholds: dict[str, dict[str, float]] = field(default_factory=dict)
+    profile: dict | None = None
     edges: dict[str, np.ndarray] = field(init=False)
+    ref_shares: dict[str, np.ndarray | None] = field(init=False)
 
     def __post_init__(self):
+        if self.profile is not None:
+            known = self.profile["features"]
+            self.features = [f for f in self.features if f in known]
+            self.edges = {f: np.asarray(known[f]["edges"], dtype=float) for f in self.features}
+            self.ref_shares = {f: None if known[f]["shares"] is None else np.asarray(known[f]["shares"], dtype=float)
+                               for f in self.features}
+            return
         self.edges = {f: make_edges(self.data[f], self.bins) for f in self.features}
+        self.ref_shares = {f: None if self.data[f].isna().all() else shares(self.data[f], self.edges[f])
+                           for f in self.features}
 
     def drift(self, cur: pd.DataFrame) -> dict[str, float]:
-        return {f: psi(self.data[f], cur[f], edges=self.edges[f]) for f in self.features}
+        return {f: psi_from_shares(self.ref_shares[f], cur[f], self.edges[f]) for f in self.features}
 
 
 def perf_drift(window: pd.DataFrame, ref_mae: float, ref_bias_sd: float) -> dict[str, float] | None:
@@ -169,6 +173,14 @@ class Champion:
     valid_mae: float
     event_bias_sd: float
     sd_source: str  # "tag" ou "défaut"
+    profile: dict | None = None  # données d'entraînement résumées ; None sur les anciennes versions
+
+
+def load_profile(run_id: str) -> dict | None:
+    try:
+        return mlflow.artifacts.load_dict(f"runs:/{run_id}/{PROFILE_ARTIFACT}")
+    except Exception:  # noqa: BLE001 — version antérieure aux profils : repli sur la période fixe
+        return None
 
 
 def champion_info(client: MlflowClient, name: str, fallback_sd: float) -> Champion:
@@ -180,6 +192,7 @@ def champion_info(client: MlflowClient, name: str, fallback_sd: float) -> Champi
         valid_mae=float(mv.tags["valid_mae"]),
         event_bias_sd=float(sd) if sd else fallback_sd,
         sd_source="tag" if sd else "défaut",
+        profile=load_profile(mv.run_id),
     )
 
 
@@ -353,15 +366,27 @@ def calibrated_thresholds(dist: pd.DataFrame, p: dict) -> pd.DataFrame:
     return out.round(3)
 
 
-def load_reference(p: dict, features_path: Path | None = None) -> tuple[pd.DataFrame, Reference]:
-    df = pd.read_parquet(features_path or FEATURES_PATH)
+def period_reference(df: pd.DataFrame, p: dict) -> Reference:
+    """Référence sur la période fixe de params.yaml."""
     lo, hi = p["reference_years"]
-    return df, Reference(df[df["year"].between(lo, hi)], p["psi_features"], p["psi_bins"], load_thresholds())
+    return Reference(df[df["year"].between(lo, hi)], p["psi_features"], p["psi_bins"], load_thresholds())
+
+
+def champion_reference(champ: Champion, df: pd.DataFrame, p: dict) -> Reference:
+    """Les données d'entraînement du modèle servi, ou la période fixe s'il n'a pas de profil."""
+    if champ.profile is None:
+        return period_reference(df, p)
+    return Reference(None, p["psi_features"], p["psi_bins"], load_thresholds(), profile=champ.profile)
+
+
+def load_reference(p: dict, champ: Champion, features_path: Path | None = None) -> tuple[pd.DataFrame, Reference]:
+    df = pd.read_parquet(features_path or FEATURES_PATH)
+    return df, champion_reference(champ, df, p)
 
 
 def cmd_replay(args, p: dict, name: str) -> int:
-    df, ref = load_reference(p)
     champ = champion_info(MlflowClient(), name, p["fallback_event_bias_sd"])
+    df, ref = load_reference(p, champ)
     y0, y1 = args.years
     emit_from = pd.Timestamp(f"{y0}-01-01", tz="UTC")
     # Préremplissage : les derniers tournois de l'année précédente complètent la 1re fenêtre.
@@ -408,8 +433,8 @@ def load_log(path: Path, rounds_path: Path | None = None) -> pd.DataFrame:
 
 
 def cmd_check(args, p: dict, name: str) -> int:
-    _, ref = load_reference(p)
     champ = champion_info(MlflowClient(), name, p["fallback_event_bias_sd"])
+    _, ref = load_reference(p, champ)
     log = load_log(Path(os.environ.get("PREDICTIONS_LOG", PREDICTIONS_LOG)))
     timeline = rolling_checks(log, ref, champ, p).tail(1)
     run_id = log_timeline(timeline.assign(step=0), champ, {"mode": "check"}, p)

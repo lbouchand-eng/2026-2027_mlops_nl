@@ -59,5 +59,8 @@ step "6. Mêmes requêtes, puis monitoring : retour dans les seuils"
 quiet uv run python scripts/send_requests.py --from 2024-03-01 --to 2024-04-21 --api-url "$API"
 quiet uv run python -m pga.monitor check || true
 
+step "7. Le même backfill aujourd'hui : refusé à la promotion"
+quiet uv run python scripts/incident.py retry
+
 echo
 echo "fin de la démo — 'bash scripts/demo.sh --prepare' pour la rejouer"

@@ -12,11 +12,15 @@ Scénario (rapport : docs/incident.md) :
   5. recover  : monitoring de la même période avec v1 -> retour dans les seuils.
   Chaque étape écrit dans reports/incident/ ; `summary` assemble la chronologie.
 
+Mode --guards (après correctifs, reports/incident_guarded/) : le même backfill est d'abord refusé
+à la promotion ; on le force ensuite pour vérifier la seconde ligne de défense, le PSI calculé
+sur les données d'entraînement du modèle servi. `retry` retente le backfill et imprime le refus.
+
 Registry isolé (mlflow_incident.db, mlartifacts_incident/) : le scénario est rejouable sans
 toucher au registry principal.
 
-Usage : uv run python scripts/incident.py all [--api-url http://127.0.0.1:8000]
-        uv run python scripts/incident.py setup|corrupt|detect|rollback|recover|summary
+Usage : uv run python scripts/incident.py all [--guards] [--api-url http://127.0.0.1:8000]
+        uv run python scripts/incident.py setup|corrupt|detect|rollback|recover|summary|retry
 """
 from __future__ import annotations
 
@@ -31,6 +35,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DB = ROOT / "mlflow_incident.db"
 ARTIFACTS = ROOT / "mlartifacts_incident"
 OUT = ROOT / "reports" / "incident"
+GUARDS = False
 os.environ["MLFLOW_TRACKING_URI"] = f"sqlite:///{DB}"  # avant tout import de pga
 
 import pandas as pd  # noqa: E402
@@ -87,8 +92,7 @@ def prod_timeline(df, champ, p, label, title, before: M.Champion | None = None):
     if before is not None:
         early = cur["event_id"].isin(warm)
         cur.loc[early, "prediction"] = M.predict_champion(before, cur[early])
-    lo, hi = pm["reference_years"]
-    ref = M.Reference(df[df["year"].between(lo, hi)], pm["psi_features"], pm["psi_bins"], M.load_thresholds())
+    ref = M.champion_reference(champ, df, pm) if GUARDS else M.period_reference(df, pm)
     tl = M.rolling_checks(cur, ref, champ, pm, emit_from=events.iloc[0])
     OUT.mkdir(parents=True, exist_ok=True)
     tl.to_csv(OUT / f"timeline_{label}.csv", index=False)
@@ -109,12 +113,31 @@ def step_setup(args):
                             "promoted_at": "2023-01-01 (mise en service simulée)"})
 
 
+def attempt(p, df, champ, guards: bool) -> dict:
+    return TR.retrain(df, CORRUPT_AT, champ, p["train"], p["monitor"], p["trigger"], FEATURES_PATH, transform=corrupt,
+                      transform_label=LABEL, guards=guards, wind_range=p["weather"]["wind_median_kmh"])
+
+
+def step_retry(args):
+    T.setup_mlflow(os.environ["MLFLOW_TRACKING_URI"], ARTIFACTS)
+    p, df, client, name = ctx()
+    champ = champion(p, client, name)
+    res = attempt(p, df, champ, guards=True)
+    print(f"challenger v{res['version']} : {'PROMU' if res['promoted'] else 'REFUSÉ'}, le champion reste v{champ.version}")
+    for b in res["blocked"]:
+        print(f"  - {b}")
+    return res
+
+
 def step_corrupt(args):
     T.setup_mlflow(os.environ["MLFLOW_TRACKING_URI"], ARTIFACTS)
     p, df, client, name = ctx()
     champ = champion(p, client, name)
-    res = TR.retrain(df, CORRUPT_AT, champ, p["train"], p["monitor"], p["trigger"], FEATURES_PATH,
-                     transform=corrupt, transform_label=LABEL)
+    if GUARDS:
+        blocked = attempt(p, df, champ, guards=True)
+        save("2_blocked", {"date": str(CORRUPT_AT.date()), "challenger": blocked["version"], "promoted": blocked["promoted"],
+                           "reason": blocked["reason"], "blocked": blocked["blocked"]})
+    res = attempt(p, df, champ, guards=False)
     return save("2_corrupt", {"date": str(CORRUPT_AT.date()), "challenger": res["version"], "promoted": res["promoted"],
                               "reason": res["reason"], "challenger_metrics": res["challenger"],
                               "champion_metrics": res["champion"], "data_transform": LABEL})
@@ -168,20 +191,27 @@ def step_recover(args):
 
 def step_summary(args):
     steps = {f.stem: json.loads(f.read_text()) for f in sorted(OUT.glob("[1-5]_*.json"))}
-    return save("summary", {"scenario": LABEL, "corrupted_at": str(CORRUPT_AT.date()), "steps": steps})
+    if not GUARDS:
+        steps.pop("2_blocked", None)
+    return save("summary", {"scenario": LABEL, "corrupted_at": str(CORRUPT_AT.date()), "guards": GUARDS, "steps": steps})
 
 
 STEPS = {"setup": step_setup, "corrupt": step_corrupt, "detect": step_detect, "rollback": step_rollback,
          "recover": step_recover, "summary": step_summary}
+ONCE = {"retry": step_retry}
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("step", choices=[*STEPS, "all"])
+    ap.add_argument("step", choices=[*STEPS, *ONCE, "all"])
     ap.add_argument("--api-url")
+    ap.add_argument("--guards", action="store_true", help="scénario après correctifs (reports/incident_guarded/)")
     args = ap.parse_args()
+    global GUARDS, OUT
+    if args.guards:
+        GUARDS, OUT = True, ROOT / "reports" / "incident_guarded"
     for name in (STEPS if args.step == "all" else [args.step]):
-        STEPS[name](args)
+        (STEPS | ONCE)[name](args)
     return 0
 
 

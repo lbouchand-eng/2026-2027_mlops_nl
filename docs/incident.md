@@ -94,15 +94,26 @@ toujours sous la MAE de validation.*
 
 ## 8. Actions correctives
 
-1. **Contrôle d'unité à l'ingestion** (`weather.py`) : forcer `wind_speed_unit=kmh` dans la
-   requête, vérifier l'unité renvoyée par Open-Meteo (`hourly_units`), et refuser un backfill
-   dont la distribution du vent sort des plages historiques (par exemple une médiane
-   divisée par 3).
-2. **La référence du monitoring doit être les données d'entraînement du modèle servi**, et non
-   une période fixe (`params.yaml → monitor.reference_years`). On la lit dans les tags de la
-   version champion (fenêtre et hash des données). Avec cette référence, le PSI du vent aurait
-   comparé les km/h de production aux m/s d'entraînement dès le 7 mars.
-3. **Validation hors backfill** : la fenêtre de décision du réentraînement doit venir des
-   données de production déjà servies et journalisées (`data/monitoring/predictions.parquet`),
-   et non du backfill qui sert à l'entraînement. Il faut aussi bloquer la promotion quand la
-   distribution d'une feature diffère entre les données du challenger et celles du champion.
+| # | Action | État |
+|---|---|---|
+| 1 | **Contrôle d'unité à l'ingestion** (`weather.py`) : l'unité renvoyée (`hourly_units`) doit être km/h, et la médiane du vent rester dans `params.yaml → weather.wind_median_kmh` | fait |
+| 2 | **Référence du PSI = données d'entraînement du modèle servi** : chaque run enregistre `reference_profile.json`, relu par le monitoring. Repli sur `monitor.reference_years` pour les versions plus anciennes | fait |
+| 3 | **Promotion bloquée** si les données du challenger s'écartent du profil du champion (`trigger.promotion_blocks`) ; la version reste `candidate` avec le tag `blocked_reason` | fait |
+| 4 | **Règle du déclencheur** : une alerte PSI peu après une mise en service désigne ce déploiement, donc rollback | fait |
+| 5 | **Validation hors backfill** : décider la promotion sur les prédictions déjà journalisées, et non sur le backfill | à faire |
+
+## 9. Le même incident après correctifs
+
+Rejouable : `uv run python scripts/incident.py all --guards`, résultats dans
+`reports/incident_guarded/`. Le scénario d'origine reste rejouable sans cette option, et ses
+résultats sont inchangés.
+
+| | Avant correctifs | Après correctifs |
+|---|---|---|
+| Backfill au 1er mars | promu (MAE 2,261 contre 2,316) | **refusé** : médiane du vent 3,0 km/h, PSI vent 5,20 > 1,57, PSI rafales 6,05 > 3,26 |
+| Si on le force malgré tout : alertes PSI | 0 sur 19 contrôles | **19 sur 19** |
+| Première alerte | 28 mars | **7 mars**, dès le premier tournoi |
+| Rollback | 25 mars, après 4 tournois | **11 mars**, après le premier tournoi |
+
+Non-régression : le drift naturel 2023-2024 donne toujours 79 ok, 9 warning, 1 alerte, et le
+réentraînement légitime du 5 février 2024 reste promu (MAE 2,326 contre 2,362).

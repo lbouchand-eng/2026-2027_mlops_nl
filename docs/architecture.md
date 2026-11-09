@@ -6,7 +6,7 @@
  ESPN / Open-Meteo / OSM
           │  dvc repro (calendar → leaderboards → rounds → courses → weather)
           ▼
- data/processed/features.parquet ──────────────┐   (DVC, remote local ../pga-dvcstore)
+ data/processed/features.parquet ──────────────┐   (DVC, Release data-v1 du dépôt)
           │  pga.train                          │
           ▼                                     │ référence 2018-2022
  MLflow (runs + Model Registry)                 │
