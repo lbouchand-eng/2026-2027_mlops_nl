@@ -86,7 +86,7 @@ def test_main_logs_operation_and_reloads_api(registry, monkeypatch):
         def json(self):
             return self.payload
 
-    monkeypatch.setattr(R.requests, "post", lambda url, timeout: calls.append(url) or Resp({}))
+    monkeypatch.setattr(R.requests, "post", lambda url, headers, timeout: calls.append(url) or Resp({}))
     monkeypatch.setattr(R.requests, "get", lambda url, timeout: Resp({"model_version": v1}))
     assert R.main(["--reason", "alerte", "--api-url", "http://api"]) == 0
     assert calls == ["http://api/reload"]
