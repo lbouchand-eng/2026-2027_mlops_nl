@@ -23,7 +23,9 @@
     "bias_z": 1.8411,
     "mae": 2.4797,
     "mae_ratio": 1.0419,
-    "n_events": 8.0
+    "n_events": 8.0,
+    "cusum_up": 1.2075,
+    "cusum_down": 0.0
   },
   "psi_max_feature": "form_rel_xlong",
   "history": {
@@ -37,6 +39,6 @@
   "label": "replay",
   "inject": null,
   "inject_since": null,
-  "mlflow_run_id": "49fa58874b864666ab752f9cce57fde5",
+  "mlflow_run_id": "903caa80d9604fe9bafbdf158a8e75e1",
   "timeline": "reports/monitoring/timeline_replay.png"
 }

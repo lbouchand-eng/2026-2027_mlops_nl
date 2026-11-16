@@ -89,6 +89,35 @@ def test_status_levels(drift, perf, expected):
     assert (expected == "ok") == (reasons == [])
 
 
+MPC = {**MP, "cusum_k": 0.5, "cusum_h_warning": 3.0, "cusum_h_alert": 4.0}
+
+
+def test_cusum_accumulates_persistent_shift_only():
+    up, down = M.cusum([0.4] * 20, k=0.5)  # en dessous de k : absorbé
+    assert up.max() == 0 and down.max() == 0
+    up, down = M.cusum([1.5] * 5, k=0.5)  # +1 par tournoi
+    assert up.tolist() == [1, 2, 3, 4, 5] and down.max() == 0
+    up, down = M.cusum([-1.5, np.nan, -1.5], k=0.5)  # tournoi sans score : sommes inchangées
+    assert down.tolist() == [1, 1, 2] and up.max() == 0
+
+
+def test_event_cusum_follows_event_order_and_scale():
+    w = window([0.0, 0.0, 3.0, 3.0, 3.0, 3.0])  # biais de 3 coups, σ_tournoi = 2 -> z = 1,5
+    order = pd.Series(range(6), index=[f"E{i}" for i in range(6)])
+    cs = M.event_cusum(w, order, event_bias_sd=2.0, k=0.5)
+    assert cs["cusum_up"].tolist() == pytest.approx([0, 0, 1, 2, 3, 4])
+    reverse = M.event_cusum(w, order[::-1], event_bias_sd=2.0, k=0.5)  # retour au calme : -k par tournoi
+    assert reverse["cusum_up"].tolist() == pytest.approx([1, 2, 3, 4, 3.5, 3])
+
+
+@pytest.mark.parametrize("c, expected", [(2.0, "ok"), (3.5, "warning"), (4.5, "alert")])
+def test_status_cusum_levels(c, expected):
+    perf = {"bias": 0.0, "bias_z": 0.0, "mae": 1, "mae_ratio": 1.0, "cusum_up": 0.0, "cusum_down": c}
+    level, reasons = M.status({}, perf, MPC)
+    assert level == expected
+    assert expected == "ok" or "trop basses" in reasons[0]
+
+
 def test_status_uses_per_feature_thresholds():
     thresholds = {"fc_wind_mean": {"warning": 0.8, "alert": 1.5}}
     assert M.status({"fc_wind_mean": 0.5}, None, MP, thresholds)[0] == "ok"
@@ -195,6 +224,16 @@ def test_replay_detects_injected_drift(setup):
 
     runs = mlflow.search_runs(experiment_names=[M.EXPERIMENT])
     assert set(runs["tags.status"]) >= {"alert"} and len(runs) == 2
+
+
+def test_replay_reports_cusum(setup):
+    args = SimpleNamespace(years=[2023, 2023], inject=None, since=None, name="cusum")
+    M.cmd_replay(args, MPC, setup["name"])
+    latest = json.loads((setup["out"] / "latest.json").read_text())
+    assert latest["signals"]["cusum_up"] is not None and latest["signals"]["cusum_down"] is not None
+    timeline = pd.read_csv(setup["out"] / "timeline_cusum.csv")
+    assert {"cusum_up", "cusum_down"} <= set(timeline.columns)
+    assert (timeline["cusum_up"] >= 0).all() and (timeline["cusum_down"] >= 0).all()
 
 
 def test_check_on_api_log(setup, monkeypatch, tmp_path):

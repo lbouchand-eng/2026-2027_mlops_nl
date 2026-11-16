@@ -5,7 +5,8 @@
     "[warning] PSI form_rel_xlong = 0.32 > 0.21",
     "[warning] PSI form_ewm = 0.11 > 0.10",
     "[alert] biais +1.43 coup (z = +4.7, seuil 3.0)",
-    "[alert] MAE 2.77 = 1.16 x validation (seuil 1.1)"
+    "[alert] MAE 2.77 = 1.16 x validation (seuil 1.1)",
+    "[alert] CUSUM du biais 37.0 > 4.0 (prédictions trop hautes)"
   ],
   "last_event": {
     "event_id": "401693957",
@@ -26,13 +27,15 @@
     "bias_z": 4.7495,
     "mae": 2.7693,
     "mae_ratio": 1.1636,
-    "n_events": 8.0
+    "n_events": 8.0,
+    "cusum_up": 37.029,
+    "cusum_down": 0.0
   },
   "psi_max_feature": "fc_wind_mean",
   "history": {
     "n_checks": 89,
-    "n_warning": 9,
-    "n_alert": 34,
+    "n_warning": 8,
+    "n_alert": 37,
     "first_warning": "2023-02-16 05:00:00+00:00",
     "first_alert": "2023-12-14 05:00:00+00:00"
   },
@@ -40,6 +43,6 @@
   "label": "incident",
   "inject": "fc_wind_mean+15",
   "inject_since": "2024-03-01",
-  "mlflow_run_id": "47f2a646704b4539be952654f25cb130",
+  "mlflow_run_id": "309aea48eaed4ff595737047b7c888f2",
   "timeline": "reports/monitoring/timeline_incident.png"
 }
