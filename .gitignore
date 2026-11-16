@@ -19,3 +19,8 @@ mlartifacts/
 mlruns/
 mlflow_incident.db
 mlartifacts_incident/
+
+# Rapport (rendu Quarto)
+/report/project.html
+/report/*_files/
+/report/.quarto/
