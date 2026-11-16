@@ -19,3 +19,8 @@ mlartifacts/
 mlruns/
 mlflow_incident.db
 mlartifacts_incident/
+
+# Présentation (rendu Quarto)
+/presentation/presentation.html
+/presentation/*_files/
+/presentation/.quarto/

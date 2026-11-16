@@ -222,6 +222,17 @@ le premier tournoi et le rollback a lieu le 11 mars au lieu du 25 (19 alertes PS
 contrôles, contre 0 auparavant). Comparé sur le journal de l'API, le challenger corrompu perd
 aussi à lui seul (MAE 2,652 contre 2,268). La dernière étape de la démo montre le refus.
 
+## Présentation
+
+Slides de l'oral (Quarto, format revealjs) dans `presentation/`, avec notes de l'orateur.
+
+```bash
+uv pip install quarto-cli                              # Quarto dans .venv (ou Quarto installé à part)
+uv run python presentation/make_figures.py             # graphiques tirés de reports/
+uv run quarto render presentation/presentation.qmd     # -> presentation/presentation.html
+open presentation/presentation.html                    # F : plein écran, S : notes de l'orateur
+```
+
 ## Remote DVC (stockage local)
 
 Le remote par défaut `localstore` est un dossier **à côté du dépôt** :
