@@ -1,0 +1,52 @@
+
+────────────────────────────────────────────────────────────────
+▶ 1. L'API sert le champion actuel
+────────────────────────────────────────────────────────────────
+{"status":"ok","model_name":"pga-score-model","model_alias":"champion","model_version":"2","detail":null}
+
+────────────────────────────────────────────────────────────────
+▶ 2. Production : les tournois de mars-avril 2024 envoyés à /predict
+────────────────────────────────────────────────────────────────
+3442 prédictions (9 tournois, 2024-03-01 -> 2024-04-21) servies par v2
+
+────────────────────────────────────────────────────────────────
+▶ 3. Monitoring sur le journal de l'API (scores réels connus)
+────────────────────────────────────────────────────────────────
+statut : ALERT  (modèle v2, dernier tournoi : Corales Puntacana Championship)
+  PSI max 5.6167 (fc_wind_mean) | biais 1.7925 (z 5.941) | MAE ratio 1.2489
+  - [alert] PSI fc_gust_max = 7.05 > 3.26
+  - [alert] PSI fc_wind_mean = 5.62 > 1.57
+  - [alert] biais +1.79 coup (z = +5.9, seuil 3.0)
+  - [alert] MAE 2.82 = 1.25 x validation (seuil 1.1)
+  - [alert] CUSUM du biais 13.7 > 4.0 (prédictions trop hautes)
+  historique : 1 contrôles, 0 warning, 1 alert (1er warning None, 1re alerte 2024-04-18 04:00:00+00:00)
+
+────────────────────────────────────────────────────────────────
+▶ 4. Le déclencheur décide et agit (rollback + rechargement de l'API)
+────────────────────────────────────────────────────────────────
+[2024-04-22] champion v2 -> action : ROLLBACK
+  alerte PSI juste après la mise en service de v2 (2024-03-01) : [alert] PSI fc_gust_max = 7.05 > 3.26 | [alert] PSI fc_wind_mean = 5.62 > 1.57 | [alert] biais +1.79 coup (z = +5.9, seuil 3.0) | [alert] MAE 2.82 = 1.25 x validation (seuil 1.1) | [alert] CUSUM du biais 15.9 > 4.0 (prédictions trop hautes)
+  rollback v2 -> v1
+
+────────────────────────────────────────────────────────────────
+▶ 5. L'API sert la version saine
+────────────────────────────────────────────────────────────────
+{"status":"ok","model_name":"pga-score-model","model_alias":"champion","model_version":"1","detail":null}
+
+────────────────────────────────────────────────────────────────
+▶ 6. Mêmes requêtes, puis monitoring : retour dans les seuils
+────────────────────────────────────────────────────────────────
+3442 prédictions (9 tournois, 2024-03-01 -> 2024-04-21) servies par v1
+statut : OK  (modèle v1, dernier tournoi : Corales Puntacana Championship)
+  PSI max 0.0569 (form_rel_long) | biais 0.2323 (z 0.77) | MAE ratio 0.9419
+  historique : 1 contrôles, 0 warning, 0 alert (1er warning None, 1re alerte None)
+
+────────────────────────────────────────────────────────────────
+▶ 7. Le même backfill aujourd'hui : refusé à la promotion
+────────────────────────────────────────────────────────────────
+challenger v3 : REFUSÉ, le champion reste v1
+  - médiane du vent 3.0 km/h hors de la plage [6, 20]
+  - PSI fc_gust_max = 6.05 > 3.26
+  - PSI fc_wind_mean = 5.20 > 1.57
+
+fin de la démo — 'bash scripts/demo.sh --prepare' pour la rejouer
