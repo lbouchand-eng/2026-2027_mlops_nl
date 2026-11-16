@@ -1,0 +1,86 @@
+/*-- scss:defaults --*/
+
+// Same navy as the monitoring timelines (pga.monitor)
+$primary: #1f3b73;
+$link-color: #1f3b73;
+$body-color: #1d2330;
+$headings-color: #1d2330;
+$font-size-base: 1.02rem;
+$line-height-base: 1.6;
+$table-striped-bg: #f3f5f8;
+$code-color: #1f3b73;
+
+/*-- scss:rules --*/
+
+.lead {
+  font-size: 1.15rem;
+  color: #3b4352;
+  border-left: 4px solid #1f3b73;
+  padding-left: 1rem;
+  margin: 1.5rem 0;
+}
+
+h1 {
+  margin-top: 2.5rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid #dde1e7;
+}
+
+table {
+  font-size: 0.92rem;
+}
+
+table th {
+  color: #1f3b73;
+  border-bottom: 2px solid #1f3b73 !important;
+}
+
+.table caption,
+figcaption {
+  color: #5b6472;
+  font-size: 0.9rem;
+}
+
+// Temporal split
+.split {
+  display: flex;
+  gap: 6px;
+  margin: 0.5rem 0 1.25rem 0;
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.split div {
+  padding: 0.55rem 0.6rem;
+  border-radius: 6px;
+  color: #ffffff;
+  text-align: center;
+  line-height: 1.3;
+}
+
+.split span {
+  font-weight: 400;
+  font-size: 0.85rem;
+}
+
+.split .hist { background: #9aa3ad; flex: 2; }
+.split .ref { background: #1f3b73; flex: 5; }
+.split .drift { background: #9b1c1c; flex: 2; }
+
+@media (max-width: 600px) {
+  .split { flex-direction: column; }
+}
+
+
+// Small screens: wide tables scroll instead of widening the page
+@media (max-width: 768px) {
+  :not(pre) > code {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  table {
+    display: block;
+    overflow-x: auto;
+  }
+}
