@@ -82,7 +82,7 @@ def metrics_by_year() -> None:
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.2), gridspec_kw={"wspace": 0.3})
     for vals, color, name, dy in [(base, GREY, "baseline (course average)", 9), (mae, NAVY, "model", -19)]:
         ax1.plot(x, vals, color=color, lw=2, marker="o", ms=8, label=name)
-        for i, v in zip(x, vals):
+        for i, v in zip(x, vals, strict=True):
             ax1.annotate(f"{v:.2f}", (i, v), xytext=(0, dy), textcoords="offset points",
                          ha="center", fontsize=11, color=INK)
     ax1.set_xticks(x, labels)
@@ -93,7 +93,7 @@ def metrics_by_year() -> None:
     ax1.legend(loc="upper center", bbox_to_anchor=(0.5, -0.2), ncol=2)
 
     bars = ax2.bar(x, bias, 0.5, color=NAVY)
-    for r, v in zip(bars, bias):
+    for r, v in zip(bars, bias, strict=True):
         ax2.text(r.get_x() + r.get_width() / 2, v + 0.006, f"{v:+.2f}", ha="center", va="bottom",
                  fontsize=11, color=INK)
     ax2.axhline(0, color=MUTED, lw=1)
@@ -117,7 +117,7 @@ def replay_2023_2024() -> None:
         (t["psi_ratio_max"], "Max PSI / alert threshold (worst feature)", None, 1.0, False),
     ]
     fig, axes = plt.subplots(len(panels), 1, figsize=(11, 9), sharex=True, gridspec_kw={"hspace": 0.35})
-    for ax, (y, label, warn, alert, both) in zip(axes, panels):
+    for ax, (y, label, warn, alert, both) in zip(axes, panels, strict=True):
         shade(ax, d, t["status"])
         ax.plot(d, y, color=NAVY, lw=1.5, marker="o", ms=3)
         thresholds(ax, warn, alert, both)
@@ -185,7 +185,7 @@ def incident() -> None:
     ax2.set_title("Max PSI / alert threshold", fontsize=12)
 
     for ax in (ax1, ax2):
-        for x, lab in [(promoted, "v2 promoted"), (rollback, "rollback")]:
+        for x in (promoted, rollback):
             ax.axvline(x, color=INK, lw=1.1, ls=":")
         ax.set_ylim(bottom=0)
     ax1.set_ylim(top=7.4)
