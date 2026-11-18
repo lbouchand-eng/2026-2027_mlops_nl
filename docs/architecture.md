@@ -70,6 +70,8 @@ Si `PGA_API_KEY` est défini, l'en-tête `X-API-Key` est obligatoire (401 sinon)
 
 Format Prometheus : `pga_http_requests_total{path,status}`, `pga_predict_latency_seconds`,
 `pga_predicted_rows_total{model_version}`, `pga_reloads_total{result}`, `pga_served_model_version`.
+Scrapé toutes les 5 s par Prometheus (profil Compose `observability`) ; `pga.monitor check` y
+ajoute ses signaux de drift via la Pushgateway (`docs/monitoring.md`, « Tableau de bord »).
 
 ## Journal des prédictions (entrée du monitoring)
 
