@@ -250,17 +250,6 @@ the first tournament and the rollback happens on March 11 instead of the 25th (1
 checks, versus 0 before). Compared on the API journal, the corrupted challenger also loses
 on its own (MAE 2.652 versus 2.268). The last step of the demo shows the refusal.
 
-## Project report
-
-Full presentation of the project in English (problem, system, monitoring, incident, choices and
-limitations): [`report/project.qmd`](report/project.qmd), rendered as a single self-contained HTML page.
-
-```bash
-uv pip install quarto-cli                         # Quarto in .venv (or Quarto installed separately)
-uv run python report/make_figures.py              # figures drawn from reports/ and params.yaml
-uv run quarto render report/project.qmd           # -> report/project.html
-```
-
 ## DVC remote (local storage)
 
 The default remote `localstore` is a folder **next to the repo**:
