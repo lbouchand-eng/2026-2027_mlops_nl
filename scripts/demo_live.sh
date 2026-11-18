@@ -26,8 +26,11 @@ JOURNAL="/app/data/monitoring/predictions.parquet"   # PREDICTIONS_LOG de la sta
 PAUSE=1
 [[ "${1:-}" == "--no-pause" ]] && PAUSE=0
 
-compose() { docker compose --profile observability "$@"; }
-in_api() { compose exec -T -e PUSHGATEWAY_URL=http://pushgateway:9091 api "$@"; }
+compose() { docker compose --progress quiet --profile observability "$@"; }
+# stdin fermé : sinon `exec` lit le terminal et avale les « Entrée » des pauses suivantes.
+in_api() {
+  compose exec -T -e PUSHGATEWAY_URL=http://pushgateway:9091 -e MLFLOW_ENABLE_ARTIFACTS_PROGRESS_BAR=false api "$@" < /dev/null
+}
 quiet() { "$@" 2>&1 | grep -vE "INFO|WARNING|warnings.warn|^\s*$" || true; }
 wait_api() {
   for _ in $(seq 1 90); do
@@ -53,9 +56,16 @@ if [[ "${1:-}" == "--prepare" ]]; then
   echo "== registry de la stack -> état « incident » (≈ 1 min)"
   # SQLite : l'API et MLflow sont arrêtés pendant que la base est recréée.
   compose stop api mlflow
-  compose run --rm --no-deps -T -e PGA_INCIDENT_DB=/mlflow/mlflow.db -e PGA_INCIDENT_ARTIFACTS=/app/mlartifacts api \
-    bash -c "python scripts/incident.py setup && python scripts/incident.py corrupt && rm -rf /app/data/monitoring/*" \
-    2>&1 | grep -E "^== " || true
+  log=$(mktemp)
+  if ! compose run --rm --no-deps -T -e PGA_INCIDENT_DB=/mlflow/mlflow.db -e PGA_INCIDENT_ARTIFACTS=/app/mlartifacts api \
+       bash -c "python scripts/incident.py setup && python scripts/incident.py corrupt && rm -rf /app/data/monitoring/*" \
+       < /dev/null > "$log" 2>&1; then
+    tail -30 "$log" >&2
+    echo "échec de la préparation : l'API et MLflow restent arrêtés (docker compose --profile observability up -d)" >&2
+    exit 1
+  fi
+  grep -E "^== " "$log" || true
+  rm -f "$log"
   compose up -d
   wait_api
   clear_pushgateway
