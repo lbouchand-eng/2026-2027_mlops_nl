@@ -1,19 +1,19 @@
-"""Monitoring du drift (méthode et seuils : docs/monitoring.md).
+"""Drift monitoring (method and thresholds: docs/monitoring.md).
 
-Deux familles de signaux, calculées sur une fenêtre glissante des N derniers tournois :
-- drift des données : PSI de chaque feature surveillée vs les données d'entraînement du
-  modèle servi (disponible dès la prédiction, sans attendre les scores) ;
-- drift de performance : biais moyen par tournoi rapporté à son bruit de référence
-  (z-score) et MAE rapportée à la MAE de validation du champion (scores nécessaires) ;
-  CUSUM du biais par tournoi, cumulé depuis le début de l'historique (pas de fenêtre).
-Les seuils de performance sont lus dans les tags de la version **champion** du Registry.
+Two families of signals, computed over a sliding window of the last N tournaments:
+- data drift: PSI of each monitored feature vs the training data of the served model
+  (available as soon as the prediction is made, without waiting for scores);
+- performance drift: mean bias per tournament relative to its reference noise
+  (z-score) and MAE relative to the champion's validation MAE (scores required);
+  CUSUM of the per-tournament bias, accumulated since the start of the history (no window).
+Performance thresholds are read from the tags of the **champion** version in the Registry.
 
-Commandes :
+Commands:
   uv run python -m pga.monitor replay --years 2023 2024 [--inject fc_wind_mean+15 --since 2024-03-01] [--name incident]
-  uv run python -m pga.monitor check          # journal de l'API + scores réels (+ Pushgateway si PUSHGATEWAY_URL)
-  uv run python -m pga.monitor calibrate      # distribution des signaux sur 2022 (justification des seuils)
-  uv run python -m pga.monitor backfill-tags  # pose valid_event_bias_sd sur les versions anciennes
-Code de sortie : 0 ok, 1 warning, 2 alert.
+  uv run python -m pga.monitor check          # API prediction journal + actual scores (+ Pushgateway if PUSHGATEWAY_URL)
+  uv run python -m pga.monitor calibrate      # signal distribution over 2022 (threshold justification)
+  uv run python -m pga.monitor backfill-tags  # sets valid_event_bias_sd on older versions
+Exit code: 0 ok, 1 warning, 2 alert.
 """
 from __future__ import annotations
 
@@ -39,15 +39,15 @@ from pga.features import FEATURES, TARGET
 from pga.profile import PROFILE_ARTIFACT, make_edges, shares
 
 EXPERIMENT = "pga-monitoring"
-MONITORING = Path(os.environ.get("PGA_MONITORING_DIR", REPORTS / "monitoring"))  # surchargeable (démo)
+MONITORING = Path(os.environ.get("PGA_MONITORING_DIR", REPORTS / "monitoring"))  # overridable (demo)
 LEVELS = {"ok": 0, "warning": 1, "alert": 2}
 KEYS = ["event_id", "player_id", "round"]
 
 
-# --- signaux ------------------------------------------------------------------------------
+# --- signals ------------------------------------------------------------------------------
 
 def psi_from_shares(pr: np.ndarray | None, cur, edges: np.ndarray) -> float:
-    """PSI de `cur` par rapport à une référence déjà résumée (NaN si l'un des deux est vide)."""
+    """PSI of `cur` against an already summarized reference (NaN if either is empty)."""
     cur = np.asarray(cur, dtype=float)
     if pr is None or np.isnan(cur).all():
         return float("nan")
@@ -56,7 +56,7 @@ def psi_from_shares(pr: np.ndarray | None, cur, edges: np.ndarray) -> float:
 
 
 def psi(ref, cur, bins: int = 10, edges: np.ndarray | None = None) -> float:
-    """Population Stability Index de `cur` par rapport à `ref` (NaN ignorés)."""
+    """Population Stability Index of `cur` against `ref` (NaNs ignored)."""
     ref = np.asarray(ref, dtype=float)
     if np.isnan(ref).all():
         return float("nan")
@@ -66,7 +66,7 @@ def psi(ref, cur, bins: int = 10, edges: np.ndarray | None = None) -> float:
 
 @dataclass
 class Reference:
-    """Distribution de référence (bins + parts par feature), issue de données ou d'un profil."""
+    """Reference distribution (bins + shares per feature), built from data or from a profile."""
 
     data: pd.DataFrame | None
     features: list[str]
@@ -93,10 +93,10 @@ class Reference:
 
 
 def perf_drift(window: pd.DataFrame, ref_mae: float, ref_bias_sd: float) -> dict[str, float] | None:
-    """MAE, biais et z-score du biais sur les lignes dont le score est connu.
+    """MAE, bias and bias z-score over the rows whose score is known.
 
-    Le biais est d'abord moyenné par tournoi (unité indépendante), puis entre tournois :
-    z = biais / (écart-type de référence du biais par tournoi / √n_tournois).
+    The bias is first averaged per tournament (independent unit), then across tournaments:
+    z = bias / (reference standard deviation of the per-tournament bias / √n_tournaments).
     """
     w = window.dropna(subset=[TARGET, "prediction"])
     if w.empty:
@@ -117,10 +117,10 @@ def perf_drift(window: pd.DataFrame, ref_mae: float, ref_bias_sd: float) -> dict
 
 
 def cusum(z, k: float) -> tuple[np.ndarray, np.ndarray]:
-    """CUSUM bilatéral : S+ = max(0, S+ + z - k), S- = max(0, S- - z - k).
+    """Two-sided CUSUM: S+ = max(0, S+ + z - k), S- = max(0, S- - z - k).
 
-    Un petit écart qui se répète s'accumule, le bruit centré est absorbé par `k`.
-    z = NaN (tournoi sans score) : les sommes restent inchangées.
+    A small repeated deviation accumulates; centered noise is absorbed by `k`.
+    z = NaN (tournament without scores): the sums stay unchanged.
     """
     up, down, s_up, s_down = [], [], 0.0, 0.0
     for v in np.asarray(z, dtype=float):
@@ -132,7 +132,7 @@ def cusum(z, k: float) -> tuple[np.ndarray, np.ndarray]:
 
 
 def event_cusum(cur: pd.DataFrame, order: pd.Series, event_bias_sd: float, k: float) -> pd.DataFrame:
-    """CUSUM du biais par tournoi standardisé, dans l'ordre des tournois (`order` : event_id -> début)."""
+    """CUSUM of the standardized per-tournament bias, in tournament order (`order`: event_id -> start)."""
     w = cur.dropna(subset=[TARGET, "prediction"])
     z = ((w["prediction"] - w[TARGET]).groupby(w["event_id"]).mean() / event_bias_sd).reindex(order.index)
     up, down = cusum(z, k)
@@ -141,9 +141,9 @@ def event_cusum(cur: pd.DataFrame, order: pd.Series, event_bias_sd: float, k: fl
 
 def status(drift: dict[str, float], perf: dict[str, float] | None, p: dict,
            thresholds: dict[str, dict[str, float]] | None = None) -> tuple[str, list[str]]:
-    """Statut global (le pire des signaux) et raisons lisibles.
+    """Overall status (the worst of the signals) and readable reasons.
 
-    `thresholds` : seuils PSI par feature (calibration) ; à défaut, seuils globaux de `p`.
+    `thresholds`: per-feature PSI thresholds (calibration); otherwise, global thresholds from `p`.
     """
     thresholds = thresholds or {}
     level, reasons = "ok", []
@@ -165,16 +165,16 @@ def status(drift: dict[str, float], perf: dict[str, float] | None, p: dict,
     if perf:
         z = abs(perf["bias_z"])
         if z > p["bias_z_alert"]:
-            raise_to("alert", f"biais {perf['bias']:+.2f} coup (z = {perf['bias_z']:+.1f}, seuil {p['bias_z_alert']})")
+            raise_to("alert", f"bias {perf['bias']:+.2f} strokes (z = {perf['bias_z']:+.1f}, threshold {p['bias_z_alert']})")
         elif z > p["bias_z_warning"]:
-            raise_to("warning", f"biais {perf['bias']:+.2f} coup (z = {perf['bias_z']:+.1f}, seuil {p['bias_z_warning']})")
+            raise_to("warning", f"bias {perf['bias']:+.2f} strokes (z = {perf['bias_z']:+.1f}, threshold {p['bias_z_warning']})")
         if perf["mae_ratio"] > p["mae_ratio_alert"]:
-            raise_to("alert", f"MAE {perf['mae']:.2f} = {perf['mae_ratio']:.2f} x validation (seuil {p['mae_ratio_alert']})")
+            raise_to("alert", f"MAE {perf['mae']:.2f} = {perf['mae_ratio']:.2f} x validation (threshold {p['mae_ratio_alert']})")
         if "cusum_up" in perf:
-            c, side = max((perf["cusum_up"], "trop hautes"), (perf["cusum_down"], "trop basses"))
+            c, side = max((perf["cusum_up"], "too high"), (perf["cusum_down"], "too low"))
             for lvl in ("alert", "warning"):
                 if c > p[f"cusum_h_{lvl}"]:
-                    raise_to(lvl, f"CUSUM du biais {c:.1f} > {p[f'cusum_h_{lvl}']} (prédictions {side})")
+                    raise_to(lvl, f"bias CUSUM {c:.1f} > {p[f'cusum_h_{lvl}']} (predictions {side})")
                     break
     return level, reasons
 
@@ -183,10 +183,10 @@ INJECT_RE = re.compile(r"^(\w+)\s*([+*-])\s*(-?\d+(?:\.\d+)?)$")
 
 
 def inject(df: pd.DataFrame, spec: str, since: str | None = None) -> pd.DataFrame:
-    """Perturbe une feature (`col+val`, `col-val`, `col*val`) à partir de `since` (incident simulé)."""
+    """Perturbs a feature (`col+val`, `col-val`, `col*val`) from `since` onwards (simulated incident)."""
     m = INJECT_RE.match(spec.strip())
     if not m or m.group(1) not in df:
-        raise ValueError(f"injection invalide : {spec!r} (attendu : <feature>+|-|*<nombre>)")
+        raise ValueError(f"invalid injection: {spec!r} (expected: <feature>+|-|*<number>)")
     col, op, val = m.group(1), m.group(2), float(m.group(3))
     out = df.copy()
     mask = pd.Series(True, index=out.index)
@@ -204,14 +204,14 @@ class Champion:
     version: str
     valid_mae: float
     event_bias_sd: float
-    sd_source: str  # "tag" ou "défaut"
-    profile: dict | None = None  # données d'entraînement résumées ; None sur les anciennes versions
+    sd_source: str  # "tag" or "default"
+    profile: dict | None = None  # summarized training data; None on older versions
 
 
 def load_profile(run_id: str) -> dict | None:
     try:
         return mlflow.artifacts.load_dict(f"runs:/{run_id}/{PROFILE_ARTIFACT}")
-    except Exception:  # noqa: BLE001 — version antérieure aux profils : repli sur la période fixe
+    except Exception:  # noqa: BLE001 — version predating profiles: fall back to the fixed period
         return None
 
 
@@ -223,7 +223,7 @@ def champion_info(client: MlflowClient, name: str, fallback_sd: float) -> Champi
         version=str(mv.version),
         valid_mae=float(mv.tags["valid_mae"]),
         event_bias_sd=float(sd) if sd else fallback_sd,
-        sd_source="tag" if sd else "défaut",
+        sd_source="tag" if sd else "default",
         profile=load_profile(mv.run_id),
     )
 
@@ -233,16 +233,16 @@ def predict_champion(champ: Champion, df: pd.DataFrame) -> np.ndarray:
     return np.asarray(model.predict(df[FEATURES].astype(float)), dtype=float)
 
 
-# --- fenêtres glissantes ----------------------------------------------------------------------
+# --- sliding windows ----------------------------------------------------------------------
 
 def rolling_checks(cur: pd.DataFrame, ref: Reference, champ: Champion, p: dict, emit_from=None) -> pd.DataFrame:
-    """Un contrôle après chaque tournoi, sur les `window_events` derniers tournois.
+    """One check after each tournament, over the last `window_events` tournaments.
 
-    `cur` : lignes avec event_id, event_start, features, prediction et (si connu) to_par.
-    Les tournois antérieurs à `emit_from` ne servent qu'à remplir la première fenêtre
-    (pas de contrôle émis) ; une fenêtre incomplète n'est jamais contrôlée, sauf si `cur`
-    contient moins de `window_events` tournois (mode check sur un journal court).
-    Le CUSUM (si `cusum_k` est défini) est cumulé sur tous les tournois de `cur`, préremplissage compris.
+    `cur`: rows with event_id, event_start, features, prediction and (if known) to_par.
+    Tournaments before `emit_from` only fill the first window (no check emitted);
+    an incomplete window is never checked, unless `cur` contains fewer than
+    `window_events` tournaments (check mode on a short prediction journal).
+    The CUSUM (if `cusum_k` is set) is accumulated over all tournaments of `cur`, warm-up included.
     """
     order = cur.groupby("event_id")["event_start"].min().sort_values()
     cs = event_cusum(cur, order, champ.event_bias_sd, p["cusum_k"]) if "cusum_k" in p else None
@@ -253,8 +253,8 @@ def rolling_checks(cur: pd.DataFrame, ref: Reference, champ: Champion, p: dict, 
             continue
         window_ids = order.index[i + 1 - n_win : i + 1]
         w = cur[cur["event_id"].isin(window_ids)]
-        # Trop peu de lignes (journal API court, scores pas encore connus) : signaux non
-        # interprétables, on ne les évalue pas plutôt que de lever de fausses alertes.
+        # Too few rows (short API prediction journal, scores not yet known): signals are not
+        # interpretable, so they are not evaluated rather than raising false alerts.
         min_rows = p.get("min_rows", 0)
         enough = len(w) >= min_rows
         drift = ref.drift(w) if enough else {f: float("nan") for f in ref.features}
@@ -266,9 +266,9 @@ def rolling_checks(cur: pd.DataFrame, ref: Reference, champ: Champion, p: dict, 
             perf = {**perf, **cs.loc[eid].to_dict()}
         level, reasons = status(drift, perf, p, ref.thresholds)
         if not enough:
-            reasons.append(f"[info] PSI non évalué : {len(w)} lignes < {min_rows}")
+            reasons.append(f"[info] PSI not evaluated: {len(w)} rows < {min_rows}")
         if n_scored < min_rows:
-            reasons.append(f"[info] performance non évaluée : {n_scored} lignes notées < {min_rows}")
+            reasons.append(f"[info] performance not evaluated: {n_scored} scored rows < {min_rows}")
         alert_of = lambda f: ref.thresholds.get(f, {"alert": p["psi_alert"]})["alert"]  # noqa: E731
         worst = max(drift, key=lambda f: np.nan_to_num(drift[f] / alert_of(f), nan=-1))
         rows.append(
@@ -290,7 +290,7 @@ def rolling_checks(cur: pd.DataFrame, ref: Reference, champ: Champion, p: dict, 
     return pd.DataFrame(rows)
 
 
-# --- sorties ---------------------------------------------------------------------------------
+# --- outputs ---------------------------------------------------------------------------------
 
 def setup_mlflow() -> None:
     from pga.train import setup_mlflow as _setup
@@ -337,9 +337,9 @@ def write_latest(timeline: pd.DataFrame, champ: Champion, extra: dict, out: Path
     }
     out.mkdir(parents=True, exist_ok=True)
     text = json.dumps(latest, indent=2, ensure_ascii=False, default=str) + "\n"
-    (out / "latest.json").write_text(text)  # dernier contrôle, lu par le déclencheur
+    (out / "latest.json").write_text(text)  # last check, read by the trigger
     if extra.get("label"):
-        (out / f"summary_{extra['label']}.json").write_text(text)  # trace du scénario
+        (out / f"summary_{extra['label']}.json").write_text(text)  # scenario record
     return latest
 
 
@@ -352,14 +352,14 @@ def plot_timeline(timeline: pd.DataFrame, p: dict, path: Path, title: str, since
     t = pd.to_datetime(timeline["event_start"])
     colors = {"ok": "#ffffff", "warning": "#f6d58b", "alert": "#ee8f8f"}
     panels = [
-        ("bias_z", "z-score du biais", [(p["bias_z_warning"], "--"), (p["bias_z_alert"], "-"),
+        ("bias_z", "bias z-score", [(p["bias_z_warning"], "--"), (p["bias_z_alert"], "-"),
                                         (-p["bias_z_warning"], "--"), (-p["bias_z_alert"], "-")]),
-        ("mae_ratio", "MAE / MAE validation", [(p["mae_ratio_alert"], "-")]),
-        ("psi_ratio_max", "PSI / seuil d'alerte (max)", [(1.0, "-")]),
+        ("mae_ratio", "MAE / validation MAE", [(p["mae_ratio_alert"], "-")]),
+        ("psi_ratio_max", "PSI / alert threshold (max)", [(1.0, "-")]),
     ]
     if "cusum_up" in timeline:
         timeline = timeline.assign(cusum=timeline[["cusum_up", "cusum_down"]].max(axis=1))
-        panels.insert(1, ("cusum", "CUSUM du biais", [(p["cusum_h_warning"], "--"), (p["cusum_h_alert"], "-")]))
+        panels.insert(1, ("cusum", "bias CUSUM", [(p["cusum_h_warning"], "--"), (p["cusum_h_alert"], "-")]))
     fig, axes = plt.subplots(len(panels), 1, figsize=(11, 2.5 * len(panels)), sharex=True)
     for ax, (col, label, lines) in zip(axes, panels, strict=True):
         for k in range(len(t)):
@@ -374,18 +374,18 @@ def plot_timeline(timeline: pd.DataFrame, p: dict, path: Path, title: str, since
             ax.axvline(pd.Timestamp(since, tz="UTC"), color="black", lw=1.2, ls=":")
         ax.set_ylabel(label)
         ax.grid(alpha=0.3)
-    if timeline["psi_ratio_max"].max() > 3:  # injection : échelle log pour garder les seuils lisibles
+    if timeline["psi_ratio_max"].max() > 3:  # injection: log scale to keep the thresholds readable
         axes[-1].set_yscale("log")
     axes[0].set_title(title)
-    fig.text(0.01, 0.005, "fond : blanc = ok, jaune = warning, rouge = alert ; trait = seuil d'alerte, tirets = warning"
-             + (" ; pointillé = début de l'injection" if since else ""), fontsize=8)
+    fig.text(0.01, 0.005, "background: white = ok, yellow = warning, red = alert; solid line = alert threshold, dashed = warning"
+             + ("; dotted = start of injection" if since else ""), fontsize=8)
     fig.tight_layout(rect=(0, 0.02, 1, 1))
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=130)
     plt.close(fig)
 
 
-# --- commandes -------------------------------------------------------------------------------
+# --- commands -------------------------------------------------------------------------------
 
 CALIBRATION = REPORTS / "monitoring" / "calibration.json"
 
@@ -393,13 +393,13 @@ CALIBRATION = REPORTS / "monitoring" / "calibration.json"
 def load_thresholds(path: Path | None = None) -> dict[str, dict[str, float]]:
     path = path or CALIBRATION
     if not path.exists():
-        print(f"  ! pas de calibration ({path.name}) : seuils PSI globaux", file=sys.stderr)
+        print(f"  ! no calibration ({path.name}): global PSI thresholds", file=sys.stderr)
         return {}
     return {f: {"warning": v["warning"], "alert": v["alert"]} for f, v in json.loads(path.read_text()).items()}
 
 
 def calibrated_thresholds(dist: pd.DataFrame, p: dict) -> pd.DataFrame:
-    """warning = max(seuil global, quantile) ; alert = max(seuil global, marge x max observé)."""
+    """warning = max(global threshold, quantile); alert = max(global threshold, margin x observed max)."""
     out = dist.copy()
     out["warning"] = np.maximum(p["psi_warning"], dist[f"{int(p['calibration_quantile'] * 100)}%"])
     out["alert"] = np.maximum(p["psi_alert"], p["calibration_alert_margin"] * dist["max"])
@@ -407,13 +407,13 @@ def calibrated_thresholds(dist: pd.DataFrame, p: dict) -> pd.DataFrame:
 
 
 def period_reference(df: pd.DataFrame, p: dict) -> Reference:
-    """Référence sur la période fixe de params.yaml."""
+    """Reference over the fixed period from params.yaml."""
     lo, hi = p["reference_years"]
     return Reference(df[df["year"].between(lo, hi)], p["psi_features"], p["psi_bins"], load_thresholds())
 
 
 def champion_reference(champ: Champion, df: pd.DataFrame, p: dict) -> Reference:
-    """Les données d'entraînement du modèle servi, ou la période fixe s'il n'a pas de profil."""
+    """The training data of the served model, or the fixed period if it has no profile."""
     if champ.profile is None:
         return period_reference(df, p)
     return Reference(None, p["psi_features"], p["psi_bins"], load_thresholds(), profile=champ.profile)
@@ -429,7 +429,7 @@ def cmd_replay(args, p: dict, name: str) -> int:
     df, ref = load_reference(p, champ)
     y0, y1 = args.years
     emit_from = pd.Timestamp(f"{y0}-01-01", tz="UTC")
-    # Préremplissage : les derniers tournois de l'année précédente complètent la 1re fenêtre.
+    # Warm-up: the last tournaments of the previous year complete the 1st window.
     before = df[df["year"] == y0 - 1]
     warmup = before.groupby("event_id")["event_start"].min().nlargest(p["window_events"] - 1).index
     cur = pd.concat([before[before["event_id"].isin(warmup)], df[df["year"].between(y0, y1)]]).copy()
@@ -441,9 +441,9 @@ def cmd_replay(args, p: dict, name: str) -> int:
     label = args.name or ("incident" if args.inject else "replay")
     MONITORING.mkdir(parents=True, exist_ok=True)
     timeline.to_csv(MONITORING / f"timeline_{label}.csv", index=False)
-    title = f"Monitoring {args.years[0]}-{args.years[1]} — modèle v{champ.version}"
+    title = f"Monitoring {args.years[0]}-{args.years[1]} — model v{champ.version}"
     if args.inject:
-        title += f" — injection {args.inject} dès {args.since}"
+        title += f" — injection {args.inject} from {args.since}"
     plot_timeline(timeline, p, MONITORING / f"timeline_{label}.png", title, args.since if args.inject else None)
     tags = {"mode": f"replay:{label}", "years": f"{args.years[0]}-{args.years[1]}", "inject": args.inject or "none",
             "inject_since": args.since or "none"}
@@ -456,9 +456,9 @@ def cmd_replay(args, p: dict, name: str) -> int:
 
 def load_log(path: Path, rounds_path: Path | None = None) -> pd.DataFrame:
     rounds_path = rounds_path or ROUNDS
-    """Journal de l'API + score réel quand le tour est joué (sinon to_par = NaN)."""
+    """API prediction journal + actual score once the round is played (otherwise to_par = NaN)."""
     if not path.exists():
-        raise FileNotFoundError(f"journal des prédictions absent : {path} (lancer l'API et appeler /predict)")
+        raise FileNotFoundError(f"prediction journal missing: {path} (start the API and call /predict)")
     log = pd.read_parquet(path).sort_values("ts").drop_duplicates(KEYS, keep="last")
     log["round"] = log["round"].astype(int)
     if rounds_path.exists():
@@ -474,43 +474,43 @@ def load_log(path: Path, rounds_path: Path | None = None) -> pd.DataFrame:
 
 def notify_alert(latest: dict) -> None:
     if latest["status"] == "alert":
-        notify(f"[PGA] alerte monitoring : modèle v{latest['model']['version']}, "
-               f"dernier tournoi {latest['last_event']['event_name']}\n" + "\n".join(latest["reasons"]))
+        notify(f"[PGA] monitoring alert: model v{latest['model']['version']}, "
+               f"last tournament {latest['last_event']['event_name']}\n" + "\n".join(latest["reasons"]))
 
 
 PUSH_JOB = "pga_monitor"
 
 
 def push_metrics(latest: dict, url: str | None = None) -> bool:
-    """Pousse le dernier contrôle vers la Pushgateway (`PUSHGATEWAY_URL`), lue par Prometheus/Grafana.
+    """Pushes the last check to the Pushgateway (`PUSHGATEWAY_URL`), read by Prometheus/Grafana.
 
-    Sans la variable, rien n'est envoyé. Un signal non évalué (None) n'est pas poussé : le push
-    remplace tout le groupe `job=pga_monitor`, donc aucune valeur périmée ne reste affichée.
-    Une Pushgateway injoignable n'interrompt jamais le contrôle (le statut reste dans latest.json).
+    Without the variable, nothing is sent. A signal that was not evaluated (None) is not pushed: the
+    push replaces the whole `job=pga_monitor` group, so no stale value stays displayed.
+    An unreachable Pushgateway never interrupts the check (the status stays in latest.json).
     """
     url = url or os.environ.get("PUSHGATEWAY_URL")
     if not url:
         return False
     reg = CollectorRegistry()
     s = latest["signals"]
-    Gauge("pga_drift_status", "Statut du dernier contrôle (0 ok, 1 warning, 2 alert)", registry=reg).set(LEVELS[latest["status"]])
-    Gauge("pga_monitor_model_version", "Version du champion contrôlé", registry=reg).set(int(latest["model"]["version"]))
-    for key, doc in (("bias", "Biais moyen de la fenêtre (coups)"), ("bias_z", "z-score du biais de la fenêtre"),
-                     ("mae_ratio", "MAE de la fenêtre / MAE de validation du champion")):
+    Gauge("pga_drift_status", "Status of the last check (0 ok, 1 warning, 2 alert)", registry=reg).set(LEVELS[latest["status"]])
+    Gauge("pga_monitor_model_version", "Version of the checked champion", registry=reg).set(int(latest["model"]["version"]))
+    for key, doc in (("bias", "Mean bias over the window (strokes)"), ("bias_z", "Bias z-score over the window"),
+                     ("mae_ratio", "Window MAE / champion validation MAE")):
         if s.get(key) is not None:
             Gauge(f"pga_{key}", doc, registry=reg).set(s[key])
     if s.get("psi_max") is not None:
-        g = Gauge("pga_psi_max", "PSI de la feature la plus proche de son seuil d'alerte", ["feature"], registry=reg)
+        g = Gauge("pga_psi_max", "PSI of the feature closest to its alert threshold", ["feature"], registry=reg)
         g.labels(str(latest.get("psi_max_feature"))).set(s["psi_max"])
     if s.get("cusum_up") is not None or s.get("cusum_down") is not None:
-        g = Gauge("pga_cusum", "CUSUM du biais par tournoi", ["direction"], registry=reg)
+        g = Gauge("pga_cusum", "CUSUM of the per-tournament bias", ["direction"], registry=reg)
         for d in ("up", "down"):
             if s.get(f"cusum_{d}") is not None:
                 g.labels(d).set(s[f"cusum_{d}"])
     try:
         push_to_gateway(url, job=PUSH_JOB, registry=reg, timeout=10)
     except Exception as exc:  # noqa: BLE001 — URLError, HTTPError, socket…
-        print(f"  ! métriques non poussées vers la Pushgateway : {type(exc).__name__}", file=sys.stderr)
+        print(f"  ! metrics not pushed to the Pushgateway: {type(exc).__name__}", file=sys.stderr)
         return False
     return True
 
@@ -531,11 +531,11 @@ def cmd_check(args, p: dict, name: str) -> int:
 
 
 def cmd_calibrate(args, p: dict, name: str) -> int:
-    """Distribution naturelle des PSI sur la période de référence → seuils par feature.
+    """Natural PSI distribution over the reference period → per-feature thresholds.
 
-    Fenêtres glissantes de `window_events` tournois consécutifs sur toute la référence
-    (toutes saisons, fenêtres à cheval sur deux années comprises) ; chaque fenêtre est
-    comparée à la référence privée de ses propres années (pas d'auto-comparaison).
+    Sliding windows of `window_events` consecutive tournaments over the whole reference
+    (all seasons, including windows spanning two years); each window is compared to the
+    reference minus its own years (no self-comparison).
     """
     df = pd.read_parquet(FEATURES_PATH)
     lo, hi = p["reference_years"]
@@ -553,7 +553,7 @@ def cmd_calibrate(args, p: dict, name: str) -> int:
     q = p["calibration_quantile"]
     dist = pd.DataFrame(rows).describe(percentiles=[0.5, q]).T[["50%", f"{int(q * 100)}%", "max"]]
     table = calibrated_thresholds(dist, p)
-    print(f"PSI naturel sur {len(rows)} fenêtres de {p['window_events']} tournois ({lo}-{hi}, référence hors années de la fenêtre) :")
+    print(f"Natural PSI over {len(rows)} windows of {p['window_events']} tournaments ({lo}-{hi}, reference excluding the window's years):")
     print(table.to_string())
     MONITORING.mkdir(parents=True, exist_ok=True)
     CALIBRATION.write_text(table.to_json(orient="index", indent=2) + "\n")
@@ -562,7 +562,7 @@ def cmd_calibrate(args, p: dict, name: str) -> int:
 
 
 def cmd_backfill(args, p: dict, name: str) -> int:
-    """Calcule valid_event_bias_sd pour les versions qui ne l'ont pas (si mêmes données)."""
+    """Computes valid_event_bias_sd for versions that lack it (if trained on the same data)."""
     from pga.train import data_hash, event_bias_sd, make_model, select, to_xy
 
     client = MlflowClient()
@@ -570,11 +570,11 @@ def cmd_backfill(args, p: dict, name: str) -> int:
     current = data_hash(FEATURES_PATH)
     for mv in client.search_model_versions(f"name='{name}'"):
         if "valid_event_bias_sd" in mv.tags:
-            print(f"v{mv.version} : déjà renseigné ({mv.tags['valid_event_bias_sd']})")
+            print(f"v{mv.version}: already set ({mv.tags['valid_event_bias_sd']})")
             continue
         run = client.get_run(mv.run_id)
         if run.data.tags.get("data_hash") != current:
-            print(f"v{mv.version} : entraîné sur d'autres données ({run.data.tags.get('data_hash')}) -> ignoré")
+            print(f"v{mv.version}: trained on other data ({run.data.tags.get('data_hash')}) -> skipped")
             continue
         rp = run.data.params
         model_p = {k.removeprefix("model_"): yaml.safe_load(v) for k, v in rp.items() if k.startswith("model_")}
@@ -583,36 +583,36 @@ def cmd_backfill(args, p: dict, name: str) -> int:
         va = select(df, years["valid_years"])
         sd = event_bias_sd(va["event_id"], m.predict(to_xy(va)[0]) - va[TARGET].to_numpy())
         client.set_model_version_tag(name, mv.version, "valid_event_bias_sd", f"{sd:.6f}")
-        print(f"v{mv.version} : valid_event_bias_sd = {sd:.4f}")
+        print(f"v{mv.version}: valid_event_bias_sd = {sd:.4f}")
     return 0
 
 
 def report(latest: dict) -> None:
     s = latest["signals"]
-    print(f"statut : {latest['status'].upper()}  (modèle v{latest['model']['version']}, dernier tournoi : "
+    print(f"status: {latest['status'].upper()}  (model v{latest['model']['version']}, last tournament: "
           f"{latest['last_event']['event_name']})")
-    print(f"  PSI max {s['psi_max']} ({latest['psi_max_feature']}) | biais {s['bias']} (z {s['bias_z']}) | MAE ratio {s['mae_ratio']}")
+    print(f"  PSI max {s['psi_max']} ({latest['psi_max_feature']}) | bias {s['bias']} (z {s['bias_z']}) | MAE ratio {s['mae_ratio']}")
     for r in latest["reasons"]:
         print(f"  - {r}")
     h = latest["history"]
-    print(f"  historique : {h['n_checks']} contrôles, {h['n_warning']} warning, {h['n_alert']} alert "
-          f"(1er warning {h['first_warning']}, 1re alerte {h['first_alert']})")
+    print(f"  history: {h['n_checks']} checks, {h['n_warning']} warning, {h['n_alert']} alert "
+          f"(1st warning {h['first_warning']}, 1st alert {h['first_alert']})")
 
 
 def main(argv: list[str] | None = None) -> int:
     load_dotenv(ROOT / ".env")
     all_p = params()
     p, name = all_p["monitor"], all_p["train"]["registered_model_name"]
-    ap = argparse.ArgumentParser(description="Monitoring du drift du modèle servi")
+    ap = argparse.ArgumentParser(description="Drift monitoring of the served model")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    rp = sub.add_parser("replay", help="rejoue une période tournoi par tournoi")
+    rp = sub.add_parser("replay", help="replays a period tournament by tournament")
     rp.add_argument("--years", nargs=2, type=int, default=[2023, 2024])
-    rp.add_argument("--inject", help="ex. fc_wind_mean+15 ou fc_wind_mean*3.6")
-    rp.add_argument("--since", help="date de début de l'injection (AAAA-MM-JJ)")
-    rp.add_argument("--name", help="suffixe des fichiers de sortie")
-    sub.add_parser("check", help="contrôle sur le journal de l'API")
-    sub.add_parser("calibrate", help="distribution des PSI en 2022")
-    sub.add_parser("backfill-tags", help="renseigne valid_event_bias_sd sur les anciennes versions")
+    rp.add_argument("--inject", help="e.g. fc_wind_mean+15 or fc_wind_mean*3.6")
+    rp.add_argument("--since", help="injection start date (YYYY-MM-DD)")
+    rp.add_argument("--name", help="suffix of the output files")
+    sub.add_parser("check", help="check on the API prediction journal")
+    sub.add_parser("calibrate", help="PSI distribution in 2022")
+    sub.add_parser("backfill-tags", help="sets valid_event_bias_sd on older versions")
     args = ap.parse_args(argv)
 
     setup_mlflow()

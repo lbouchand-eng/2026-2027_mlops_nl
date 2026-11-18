@@ -1,8 +1,8 @@
-"""Client HTTP minimal : throttle, retries exponentiels, sauvegarde du JSON brut.
+"""Minimal HTTP client: throttling, exponential retries, raw JSON saved to disk.
 
-Les réponses brutes sont écrites telles quelles sur disque (versionnées par DVC) :
-si le fichier existe déjà, on le relit au lieu de refaire la requête, ce qui rend
-chaque étape idempotente et rejouable hors-ligne.
+Raw responses are written to disk as-is (versioned by DVC): if the file already
+exists, it is read back instead of repeating the request, which makes every stage
+idempotent and replayable offline.
 """
 from __future__ import annotations
 
@@ -60,12 +60,12 @@ def get_json(
     interval: float = 1.0,
     refresh: bool = False,
 ) -> dict:
-    """Renvoie le JSON de `url`, en le lisant depuis `cache_path` s'il existe déjà."""
+    """Returns the JSON of `url`, reading it from `cache_path` if it already exists."""
     if cache_path.exists() and not refresh:
         return json.loads(cache_path.read_text())
     data = _fetch(url, params, timeout, interval)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     tmp = cache_path.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False))
-    tmp.replace(cache_path)  # écriture atomique : pas de JSON tronqué si on coupe le script
+    tmp.replace(cache_path)  # atomic write: no truncated JSON if the script is interrupted
     return data

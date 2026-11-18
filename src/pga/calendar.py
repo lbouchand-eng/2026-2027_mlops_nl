@@ -1,8 +1,8 @@
-"""Étape 1 : calendrier des tournois PGA Tour (ESPN scoreboard).
+"""Stage 1: PGA Tour tournament calendar (ESPN scoreboard).
 
-Un seul appel par saison ESPN suffit : `leagues[0].calendar` liste tous les
-événements de la saison. Les saisons chevauchent deux années civiles, on interroge
-donc first_year..last_year+1 et on filtre sur la date de début.
+A single call per ESPN season is enough: `leagues[0].calendar` lists every
+event of the season. Seasons span two calendar years, so we query
+first_year..last_year+1 and filter on the start date.
 """
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ def main() -> None:
         sb = get_json(
             SCOREBOARD_URL,
             RAW_SCOREBOARD / f"season_{season}.json",
-            {"dates": f"{season}0601"},  # juin = toujours au milieu de la saison
+            {"dates": f"{season}0601"},  # June = always mid-season
             timeout=p["timeout_s"],
             interval=p["request_interval_s"],
         )
@@ -51,7 +51,7 @@ def main() -> None:
 
     EVENTS.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(EVENTS, index=False)
-    print(f"{len(df)} événements -> {EVENTS}")
+    print(f"{len(df)} events -> {EVENTS}")
     print(df.groupby("year").size().to_string())
 
 

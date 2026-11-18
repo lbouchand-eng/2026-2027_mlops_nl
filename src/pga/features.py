@@ -1,12 +1,12 @@
-"""Étape 6 : table de features joueur-tour (data/processed/features.parquet).
+"""Stage 6: player-round feature table (data/processed/features.parquet).
 
-Règle anti-fuite : la feature d'un tour n'utilise que des tours joués **avant** lui
-(tours précédents du même tournoi compris : on prédit la veille du tour). L'historique
-parcours et la difficulté du parcours n'utilisent que les **éditions précédentes**.
-La météo est la météo **prévue** (fc_*) ; l'observée (obs_*, diff_*) est réservée au
-monitoring de drift.
+Anti-leakage rule: a round's features only use rounds played **before** it
+(earlier rounds of the same tournament included: we predict the day before the round).
+Course history and course difficulty only use **previous editions**.
+Weather is the **forecast** weather (fc_*); observed weather (obs_*, diff_*) is reserved
+for drift monitoring.
 
-`FEATURES` et `TARGET` sont le schéma unique partagé par l'entraînement, l'API et le
+`FEATURES` and `TARGET` are the single schema shared by training, the API and
 monitoring.
 """
 from __future__ import annotations
@@ -27,21 +27,21 @@ WEATHER = ["fc_temp_mean", "fc_humidity_mean", "fc_precip_sum", "fc_wind_mean", 
 CONTEXT = ["round", "major", "multi_course", "yards", "host_par"]
 FEATURES = FORM + COURSE + WEATHER + CONTEXT
 
-# Colonnes qui ne doivent jamais entrer dans le modèle (connues après le tour).
+# Columns that must never enter the model (known after the round).
 FORBIDDEN = {"to_par", "strokes", "made_cut", "status", "par_played"}
 
 
 def add_field_relative(rounds: pd.DataFrame) -> pd.DataFrame:
-    """rel = to_par - moyenne du field sur (tournoi, tour) : la forme indépendamment du parcours."""
+    """rel = to_par - field mean over (tournament, round): form independent of the course."""
     out = rounds.copy()
     out["rel"] = out[TARGET] - out.groupby(["event_id", "round"])[TARGET].transform("mean")
     return out
 
 
 def player_form(df: pd.DataFrame, p: dict) -> pd.DataFrame:
-    """Forme du joueur, calculée sur ses tours strictement antérieurs.
+    """Player form, computed on their strictly earlier rounds.
 
-    Courte / longue / EWM = forme récente ; xlong / EWM lente = niveau de fond.
+    Short / long / EWM = recent form; xlong / slow EWM = underlying level.
     """
     df = df.sort_values(["tee_time_utc", "event_id", "round", "player_id"], kind="stable")
     g = df.groupby("player_id", sort=False)
@@ -62,14 +62,14 @@ def player_form(df: pd.DataFrame, p: dict) -> pd.DataFrame:
 
 
 def _prior_cumsum(agg: pd.DataFrame, by: list[str], cols: list[str]) -> pd.DataFrame:
-    """Somme cumulée sur les années strictement antérieures (agg trié par année)."""
+    """Cumulative sum over strictly earlier years (agg sorted by year)."""
     g = agg.groupby(by, sort=False)
     return pd.DataFrame({c: g[c].cumsum() - agg[c] for c in cols}, index=agg.index)
 
 
 def course_history(df: pd.DataFrame, shrink_k: float) -> pd.DataFrame:
-    """Historique du joueur sur le parcours et difficulté du parcours (éditions précédentes)."""
-    # Joueur x parcours : moyenne de rel rétrécie vers 0 avec k pseudo-tours.
+    """Player history on the course and course difficulty (previous editions)."""
+    # Player x course: mean of rel shrunk towards 0 with k pseudo-rounds.
     pc = (
         df.groupby(["player_id", "course_id", "year"])["rel"]
         .agg(rel_sum="sum", rel_n="count")
@@ -80,7 +80,7 @@ def course_history(df: pd.DataFrame, shrink_k: float) -> pd.DataFrame:
     pc["course_rel_mean"] = pc["rel_sum"] / (pc["rel_n"] + shrink_k)
     pc["course_n_rounds"] = pc["rel_n"]
 
-    # Parcours : moyenne et écart-type de to_par des éditions précédentes.
+    # Course: mean and standard deviation of to_par over previous editions.
     tmp = df.assign(sq=df[TARGET] ** 2)
     cy = (
         tmp.groupby(["course_id", "year"])
@@ -136,12 +136,12 @@ def main() -> None:
     FEATURES_PATH.parent.mkdir(parents=True, exist_ok=True)
     feats.to_parquet(FEATURES_PATH, index=False)
 
-    print(f"{len(feats):,} lignes x {len(FEATURES)} features -> {FEATURES_PATH}")
-    print("% de valeurs manquantes par split :")
+    print(f"{len(feats):,} rows x {len(FEATURES)} features -> {FEATURES_PATH}")
+    print("% missing values per split:")
     print((feats.groupby("split")[FEATURES].agg(lambda s: s.isna().mean()) * 100).round(1).T.to_string())
     ref = feats[feats.split == "reference"]
     num = ref[FEATURES].astype(float)
-    print("corrélation avec to_par (référence) :")
+    print("correlation with to_par (reference):")
     print(num.corrwith(ref[TARGET]).round(3).sort_values().to_string())
 
 

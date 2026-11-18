@@ -17,7 +17,7 @@ stages:
       - data/interim/events.parquet
     outs:
       - data/raw/espn/leaderboard:
-          persist: true   # cache local : on ne re-télécharge pas tout à chaque repro
+          persist: true   # local cache: don't re-download everything on every repro
 
   rounds:
     cmd: uv run python -m pga.rounds

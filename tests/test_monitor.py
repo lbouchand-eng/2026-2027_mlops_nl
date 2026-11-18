@@ -1,4 +1,4 @@
-"""Tests du monitoring : PSI, drift de performance, statut, injection, journal, replay."""
+"""Monitoring tests: PSI, performance drift, status, injection, prediction journal, replay."""
 import json
 from types import SimpleNamespace
 
@@ -29,7 +29,7 @@ MP = {
 }
 
 
-# --- fonctions pures ----------------------------------------------------------------------
+# --- pure functions ----------------------------------------------------------------------
 
 def test_psi_same_distribution_is_small():
     rng = np.random.default_rng(0)
@@ -59,7 +59,7 @@ def window(bias_per_event: list[float], n_per_event: int = 50) -> pd.DataFrame:
 def test_perf_drift_z_score():
     perf = M.perf_drift(window([0.5, 0.5, 0.5, 0.5]), ref_mae=0.4, ref_bias_sd=0.5)
     assert perf["bias"] == pytest.approx(0.5)
-    assert perf["bias_z"] == pytest.approx(0.5 / (0.5 / 2))  # √4 tournois
+    assert perf["bias_z"] == pytest.approx(0.5 / (0.5 / 2))  # √4 tournaments
     assert perf["mae_ratio"] == pytest.approx(0.5 / 0.4)
     assert perf["n_events"] == 4
 
@@ -93,20 +93,20 @@ MPC = {**MP, "cusum_k": 0.5, "cusum_h_warning": 3.0, "cusum_h_alert": 4.0}
 
 
 def test_cusum_accumulates_persistent_shift_only():
-    up, down = M.cusum([0.4] * 20, k=0.5)  # en dessous de k : absorbé
+    up, down = M.cusum([0.4] * 20, k=0.5)  # below k: absorbed
     assert up.max() == 0 and down.max() == 0
-    up, down = M.cusum([1.5] * 5, k=0.5)  # +1 par tournoi
+    up, down = M.cusum([1.5] * 5, k=0.5)  # +1 per tournament
     assert up.tolist() == [1, 2, 3, 4, 5] and down.max() == 0
-    up, down = M.cusum([-1.5, np.nan, -1.5], k=0.5)  # tournoi sans score : sommes inchangées
+    up, down = M.cusum([-1.5, np.nan, -1.5], k=0.5)  # tournament without scores: sums unchanged
     assert down.tolist() == [1, 1, 2] and up.max() == 0
 
 
 def test_event_cusum_follows_event_order_and_scale():
-    w = window([0.0, 0.0, 3.0, 3.0, 3.0, 3.0])  # biais de 3 coups, σ_tournoi = 2 -> z = 1,5
+    w = window([0.0, 0.0, 3.0, 3.0, 3.0, 3.0])  # bias of 3 strokes, σ_tournament = 2 -> z = 1.5
     order = pd.Series(range(6), index=[f"E{i}" for i in range(6)])
     cs = M.event_cusum(w, order, event_bias_sd=2.0, k=0.5)
     assert cs["cusum_up"].tolist() == pytest.approx([0, 0, 1, 2, 3, 4])
-    reverse = M.event_cusum(w, order[::-1], event_bias_sd=2.0, k=0.5)  # retour au calme : -k par tournoi
+    reverse = M.event_cusum(w, order[::-1], event_bias_sd=2.0, k=0.5)  # back to calm: -k per tournament
     assert reverse["cusum_up"].tolist() == pytest.approx([1, 2, 3, 4, 3.5, 3])
 
 
@@ -115,7 +115,7 @@ def test_status_cusum_levels(c, expected):
     perf = {"bias": 0.0, "bias_z": 0.0, "mae": 1, "mae_ratio": 1.0, "cusum_up": 0.0, "cusum_down": c}
     level, reasons = M.status({}, perf, MPC)
     assert level == expected
-    assert expected == "ok" or "trop basses" in reasons[0]
+    assert expected == "ok" or "too low" in reasons[0]
 
 
 def test_status_uses_per_feature_thresholds():
@@ -136,7 +136,7 @@ def test_inject_only_target_column_after_since():
     assert out["fc_gust_max"].tolist() == [20.0, 20.0]
     assert M.inject(df, "fc_wind_mean+15")["fc_wind_mean"].tolist() == [25.0, 25.0]
     with pytest.raises(ValueError):
-        M.inject(df, "colonne_inconnue+1")
+        M.inject(df, "unknown_column+1")
 
 
 def test_calibrated_thresholds_respect_floors():
@@ -146,7 +146,7 @@ def test_calibrated_thresholds_respect_floors():
     assert t.loc["b", "warning"] == 0.9 and t.loc["b", "alert"] == pytest.approx(1.8)
 
 
-# --- journal de l'API -------------------------------------------------------------------
+# --- API prediction journal -------------------------------------------------------------------
 
 def test_load_log_joins_scores(tmp_path):
     log = pd.DataFrame({
@@ -159,14 +159,14 @@ def test_load_log_joins_scores(tmp_path):
                            "event_start": pd.to_datetime(["2024-01-01"], utc=True), "event_name": ["Open"]})
     rounds.to_parquet(tmp_path / "rounds.parquet")
     out = M.load_log(tmp_path / "log.parquet", tmp_path / "rounds.parquet").set_index("player_id")
-    assert len(out) == 2  # doublon (E1, A, 1) : on garde la dernière prédiction
+    assert len(out) == 2  # duplicate (E1, A, 1): the last prediction is kept
     assert out.loc["A", "prediction"] == 0.5 and out.loc["A", TARGET] == -2
-    assert np.isnan(out.loc["B", TARGET])  # tour pas encore noté
+    assert np.isnan(out.loc["B", TARGET])  # round not yet scored
     with pytest.raises(FileNotFoundError):
         M.load_log(tmp_path / "absent.parquet")
 
 
-# --- bout en bout ----------------------------------------------------------------------------
+# --- end to end ----------------------------------------------------------------------------
 
 def make_events(df: pd.DataFrame, per_event: int = 15) -> pd.DataFrame:
     df = df.copy()
@@ -200,16 +200,16 @@ def setup(tmp_path, monkeypatch):
 def test_champion_info_reads_tags(setup):
     champ = M.champion_info(mlflow.tracking.MlflowClient(), setup["name"], fallback_sd=0.85)
     assert champ.version == setup["version"]
-    assert champ.sd_source == "tag" and champ.event_bias_sd > 0  # posé par l'entraînement
+    assert champ.sd_source == "tag" and champ.event_bias_sd > 0  # set by training
 
 
 def test_replay_detects_injected_drift(setup):
-    args = SimpleNamespace(years=[2023, 2023], inject=None, since=None, name="calme")
+    args = SimpleNamespace(years=[2023, 2023], inject=None, since=None, name="calm")
     M.cmd_calibrate(args, MP, setup["name"])
     assert (setup["out"] / "calibration.json").exists()
 
     code_calm = M.cmd_replay(args, MP, setup["name"])
-    calm = json.loads((setup["out"] / "summary_calme.json").read_text())
+    calm = json.loads((setup["out"] / "summary_calm.json").read_text())
 
     inc = SimpleNamespace(years=[2023, 2023], inject="fc_wind_mean+40", since="2023-01-01", name="incident")
     code = M.cmd_replay(inc, MP, setup["name"])
@@ -217,10 +217,10 @@ def test_replay_detects_injected_drift(setup):
     assert code == 2 and latest["status"] == "alert"
     assert any("fc_wind_mean" in r for r in latest["reasons"])
     assert latest["model"]["version"] == setup["version"]
-    assert code_calm <= code and calm["mode"] == "replay:calme"
+    assert code_calm <= code and calm["mode"] == "replay:calm"
     assert (setup["out"] / "timeline_incident.png").exists()
     timeline = pd.read_csv(setup["out"] / "timeline_incident.csv")
-    assert len(timeline) == 10  # un contrôle par tournoi de 2023, fenêtre préremplie par 2022
+    assert len(timeline) == 10  # one check per 2023 tournament, window warmed up with 2022
 
     runs = mlflow.search_runs(experiment_names=[M.EXPERIMENT])
     assert set(runs["tags.status"]) >= {"alert"} and len(runs) == 2
@@ -245,18 +245,18 @@ def test_check_on_api_log(setup, monkeypatch, tmp_path):
     log["prediction"] = 0.0
     log.to_parquet(tmp_path / "log.parquet")
     monkeypatch.setenv("PREDICTIONS_LOG", str(tmp_path / "log.parquet"))
-    monkeypatch.setattr(M, "ROUNDS", tmp_path / "pas_de_scores.parquet")
+    monkeypatch.setattr(M, "ROUNDS", tmp_path / "no_scores.parquet")
     code = M.cmd_check(SimpleNamespace(), MP, setup["name"])
     latest = json.loads((setup["out"] / "latest.json").read_text())
     assert latest["mode"] == "check" and latest["log_rows"] == 30
-    assert latest["log_rows_with_score"] == 0 and latest["signals"]["bias"] is None  # pas encore de scores
+    assert latest["log_rows_with_score"] == 0 and latest["signals"]["bias"] is None  # no scores yet
     assert code == M.LEVELS[latest["status"]]
 
-    # journal trop court : PSI non évalué, pas de fausse alerte
+    # prediction journal too short: PSI not evaluated, no false alert
     log.head(5).to_parquet(tmp_path / "log.parquet")
     assert M.cmd_check(SimpleNamespace(), MP, setup["name"]) == 0
     latest = json.loads((setup["out"] / "latest.json").read_text())
-    assert latest["status"] == "ok" and any("non évalué" in r for r in latest["reasons"])
+    assert latest["status"] == "ok" and any("not evaluated" in r for r in latest["reasons"])
 
 
 # --- Pushgateway -----------------------------------------------------------------------------
@@ -266,7 +266,7 @@ LATEST = {"status": "alert", "model": {"version": "2"}, "psi_max_feature": "fc_w
 
 
 class Gateway:
-    """Pushgateway factice : garde ce qui aurait été envoyé, au format d'exposition Prometheus."""
+    """Fake Pushgateway: keeps what would have been sent, in the Prometheus exposition format."""
 
     def __init__(self):
         self.pushes = []
@@ -311,7 +311,7 @@ def test_push_metrics_skips_signals_not_evaluated(gateway, monkeypatch):
 
 def test_push_failure_does_not_break_the_check(monkeypatch, capsys):
     def down(*a, **k):
-        raise OSError("connexion refusée")
+        raise OSError("connection refused")
 
     monkeypatch.setattr(M, "push_to_gateway", down)
     monkeypatch.setenv("PUSHGATEWAY_URL", "http://pushgateway:9091")
@@ -328,11 +328,11 @@ def test_check_pushes_its_status(setup, gateway, monkeypatch, tmp_path):
     log["prediction"] = 0.0
     log.to_parquet(tmp_path / "log.parquet")
     monkeypatch.setenv("PREDICTIONS_LOG", str(tmp_path / "log.parquet"))
-    monkeypatch.setattr(M, "ROUNDS", tmp_path / "pas_de_scores.parquet")
+    monkeypatch.setattr(M, "ROUNDS", tmp_path / "no_scores.parquet")
 
     monkeypatch.delenv("PUSHGATEWAY_URL", raising=False)
     M.cmd_check(SimpleNamespace(), MP, setup["name"])
-    assert gateway.pushes == []  # sans la variable, rien ne change
+    assert gateway.pushes == []  # without the variable, nothing changes
 
     monkeypatch.setenv("PUSHGATEWAY_URL", "http://pushgateway:9091")
     code = M.cmd_check(SimpleNamespace(), MP, setup["name"])

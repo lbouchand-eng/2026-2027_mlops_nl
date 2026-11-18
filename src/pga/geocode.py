@@ -1,8 +1,8 @@
-"""Étape 4 : géocodage des parcours (latitude/longitude) via Nominatim (OpenStreetMap).
+"""Stage 4: course geocoding (latitude/longitude) via Nominatim (OpenStreetMap).
 
-Source : `events[0].courses[].address` des leaderboards (ville, état, pays, code postal).
-Une précision « ville » (~5-10 km) suffit : la grille ERA5 fait ~25 km.
-Les erreurs se corrigent à la main dans data/courses_override.csv (prioritaire).
+Source: `events[0].courses[].address` from the leaderboards (city, state, country, zip code).
+City-level precision (~5-10 km) is enough: the ERA5 grid is ~25 km.
+Errors are fixed by hand in data/courses_override.csv (takes precedence).
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 
 
 def collect_courses(event_ids: set[str]) -> pd.DataFrame:
-    """Tous les parcours (hôte et secondaires) des tournois retenus."""
+    """All courses (host and secondary) of the retained tournaments."""
     rows = {}
     for eid in sorted(event_ids):
         ev = json.loads((RAW_LEADERBOARD / f"{eid}.json").read_text())["events"][0]
@@ -36,7 +36,7 @@ def collect_courses(event_ids: set[str]) -> pd.DataFrame:
 
 
 def _queries(row) -> list[dict]:
-    """Requêtes de la plus précise à la plus large."""
+    """Queries from most precise to broadest."""
     country = row.country if isinstance(row.country, str) else None
     state = row.state if isinstance(row.state, str) else None
     city = row.city if isinstance(row.city, str) else None
@@ -57,9 +57,9 @@ def geocode(row, interval: float, timeout: float) -> dict | None:
             RAW_GEOCODE / f"{row.course_id}_{i}.json",
             {**q, "format": "jsonv2", "limit": 1},
             timeout=timeout,
-            interval=max(interval, 1.0),  # politique d'usage Nominatim : 1 req/s max
+            interval=max(interval, 1.0),  # Nominatim usage policy: 1 req/s max
         )
-        # Nominatim renvoie une liste ; get_json la stocke telle quelle
+        # Nominatim returns a list; get_json stores it as-is
         if res:
             hit = res[0]
             return {"lat": float(hit["lat"]), "lon": float(hit["lon"]), "geo_source": f"nominatim:{list(q)}"}
@@ -85,11 +85,11 @@ def main() -> None:
     COURSES.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(COURSES, index=False)
     missing = df[df.lat.isna()]
-    print(f"{len(df)} parcours géocodés -> {COURSES} ({len(missing)} manquants)")
+    print(f"{len(df)} courses geocoded -> {COURSES} ({len(missing)} missing)")
     print(df.geo_source.str.split(":").str[0].value_counts(dropna=False).to_string())
     if len(missing):
         print(missing[["course_id", "course_name", "city", "state", "country"]].to_string())
-        sys.exit("Parcours sans coordonnées : les ajouter dans data/courses_override.csv")
+        sys.exit("Courses without coordinates: add them to data/courses_override.csv")
 
 
 if __name__ == "__main__":

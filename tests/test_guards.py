@@ -1,4 +1,4 @@
-"""Tests des garde-fous : unité du vent, profil de référence du modèle servi."""
+"""Guardrail tests: wind unit, reference profile of the served model."""
 import numpy as np
 import pandas as pd
 import pytest

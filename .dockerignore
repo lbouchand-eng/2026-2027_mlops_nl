@@ -1,4 +1,4 @@
-# .git est conservé volontairement : il fournit git_commit et git_dirty aux runs MLflow.
+# .git is kept on purpose: it provides git_commit and git_dirty to MLflow runs.
 .env
 .dvc/cache
 .dvc/tmp

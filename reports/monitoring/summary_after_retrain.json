@@ -33,10 +33,10 @@
     "first_warning": "2024-01-04 05:00:00+00:00",
     "first_alert": null
   },
-  "mode": "replay:apres_retrain",
-  "label": "apres_retrain",
+  "mode": "replay:after_retrain",
+  "label": "after_retrain",
   "inject": null,
   "inject_since": null,
   "mlflow_run_id": "5f6ede9cd15e4941900ea3b4a3dc9b0a",
-  "timeline": "reports/monitoring/timeline_apres_retrain.png"
+  "timeline": "reports/monitoring/timeline_after_retrain.png"
 }

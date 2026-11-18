@@ -1,17 +1,17 @@
-# Prometheus de la stack (profil Compose « observability »).
-# Intervalle court (5 s) : chaque étape de la démo est visible dans Grafana quelques secondes après.
+# The stack's Prometheus (Compose "observability" profile).
+# Short interval (5 s): each demo step shows up in Grafana a few seconds later.
 global:
   scrape_interval: 5s
   evaluation_interval: 5s
 
 scrape_configs:
-  # API FastAPI : requêtes, latence de l'inférence, lignes prédites, version servie.
+  # FastAPI API: requests, inference latency, predicted rows, served version.
   - job_name: api
     static_configs:
       - targets: ["api:8000"]
 
-  # Signaux du monitoring, poussés par `pga.monitor check` (job pga_monitor).
+  # Monitoring signals, pushed by `pga.monitor check` (job pga_monitor).
   - job_name: pushgateway
-    honor_labels: true   # garde job="pga_monitor" poussé par le contrôle
+    honor_labels: true   # keeps job="pga_monitor" pushed by the check
     static_configs:
       - targets: ["pushgateway:9091"]

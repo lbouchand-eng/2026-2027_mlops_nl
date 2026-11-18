@@ -1,4 +1,4 @@
-"""Tests de l'étape features : calculs et absence de fuite d'information."""
+"""Features stage tests: computations and absence of information leakage."""
 import numpy as np
 import pandas as pd
 import pytest
@@ -20,9 +20,9 @@ SPLIT = {"history": [2020, 2020], "reference": [2021, 2021]}
 
 
 def make_rounds() -> pd.DataFrame:
-    """2 tournois (même parcours, 2020 puis 2021), 2 tours chacun, 3 joueurs."""
+    """2 tournaments (same course, 2020 then 2021), 2 rounds each, 3 players."""
     rows = []
-    scores = {  # (année, tour) -> to_par des joueurs A, B, C
+    scores = {  # (year, round) -> to_par of players A, B, C
         (2020, 1): [-2, 0, 2],
         (2020, 2): [-1, 1, 3],
         (2021, 1): [-3, 0, 0],
@@ -83,12 +83,12 @@ def test_first_round_has_no_history():
 
 def test_form_uses_previous_rounds_only():
     f = build(make_rounds())
-    # A au 1er tour 2021 : rel antérieurs = -2 (2020 R1), -2 (2020 R2) ; fenêtre courte = 2
+    # A in round 1 of 2021: earlier rel = -2 (2020 R1), -2 (2020 R2); short window = 2
     assert f.loc[("E2021", "A", 1), "form_rel_short"] == pytest.approx(-2.0)
     assert f.loc[("E2021", "A", 1), "n_rounds_hist"] == 2
     assert f.loc[("E2021", "A", 1), "form_rel_xlong"] == pytest.approx(-2.0)
     assert np.isnan(f.loc[("E2020", "A", 1), "form_ewm_slow"])
-    # A au 2e tour 2021 : rel antérieurs -2 (2020 R2) et -2 (2021 R1)
+    # A in round 2 of 2021: earlier rel -2 (2020 R2) and -2 (2021 R1)
     assert f.loc[("E2021", "A", 2), "form_rel_short"] == pytest.approx(-2.0)
     assert f.loc[("E2021", "A", 2), "days_since_last"] == pytest.approx(1.0)
 
@@ -105,11 +105,11 @@ def test_changing_future_round_does_not_change_past_features():
 
 def test_course_history_uses_previous_editions_only():
     f = build(make_rounds())
-    # Parcours C1 en 2021 : uniquement 2020 -> to_par = [-2, 0, 2, -1, 1, 3]
+    # Course C1 in 2021: only 2020 -> to_par = [-2, 0, 2, -1, 1, 3]
     row = f.loc[("E2021", "A", 2)]
     assert row.course_diff_mean == pytest.approx(0.5)
     assert row.course_diff_std == pytest.approx(np.std([-2, 0, 2, -1, 1, 3], ddof=1))
-    # A sur C1 en 2020 : rel = -2, -2 ; k = 0 -> moyenne -2, même au 2e tour 2021
+    # A on C1 in 2020: rel = -2, -2; k = 0 -> mean -2, even in round 2 of 2021
     assert row.course_rel_mean == pytest.approx(-2.0)
     assert row.course_n_rounds == 2
     assert not row.is_new_course

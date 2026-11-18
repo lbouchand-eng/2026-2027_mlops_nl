@@ -1,4 +1,4 @@
-"""Tests de l'entraînement : métriques, traçabilité MLflow et règle de promotion."""
+"""Training tests: metrics, MLflow traceability and promotion rule."""
 import mlflow
 import numpy as np
 import pandas as pd
@@ -24,7 +24,7 @@ def make_features(n_per_year: int = 150, seed: int = 0) -> pd.DataFrame:
     df["round"] = rng.integers(1, 5, size=len(years))
     df["year"] = years
     df["course_diff_mean"] = rng.normal(scale=0.5, size=len(years))
-    # signal : la forme et la difficulté expliquent une partie du score
+    # signal: form and difficulty explain part of the score
     df[TARGET] = (2 * df["form_ewm"] + df["course_diff_mean"] + rng.normal(scale=1.0, size=len(years))).round()
     return df
 
@@ -66,7 +66,7 @@ def test_run_logs_traceability_and_registers(mlflow_tmp, data_file):
     assert r.data.tags["git_commit"]
     assert {"valid_mae", "valid_skill", "valid_bias", "eval_2023_mae"} <= set(r.data.metrics)
     assert r.data.params["refit_years"] == "2021-2022"
-    assert res["metrics"]["valid_skill"] > 0  # le signal synthétique bat la baseline
+    assert res["metrics"]["valid_skill"] > 0  # the synthetic signal beats the baseline
     champ = mlflow_tmp.get_model_version_by_alias("test-model", T.CHAMPION)
     assert str(champ.version) == res["version"] and res["promoted"]
     loaded = mlflow.pyfunc.load_model("models:/test-model@champion")
@@ -78,14 +78,14 @@ def test_promotion_rule(mlflow_tmp, data_file):
     first = T.run(df, P, YEARS, data_file)
     assert first["promoted"]
 
-    # Modèle dégradé (1 itération) : ne doit pas détrôner le champion.
+    # Degraded model (1 iteration): must not dethrone the champion.
     weak_p = P | {"model": P["model"] | {"max_iter": 1}}
     weak = T.run(df, weak_p, YEARS, data_file)
     assert not weak["promoted"]
     assert str(mlflow_tmp.get_model_version_by_alias("test-model", T.CHAMPION).version) == first["version"]
 
-    # Version non promue au run, puis déclarée meilleure : devient champion,
-    # l'ancien champion passe en previous.
+    # Version not promoted at run time, then declared better: becomes champion,
+    # the former champion moves to previous.
     v3 = T.run(df, weak_p, YEARS, data_file)["version"]
     promoted, _ = T.promote_if_better(mlflow_tmp, "test-model", v3, valid_mae=0.0, valid_skill=0.9)
     assert promoted
@@ -120,7 +120,7 @@ def test_git_dirty_ignores_pipeline_outputs(tmp_path):
 
 def test_event_bias_sd_logged_and_tagged(mlflow_tmp, tmp_path):
     df = make_features()
-    df["event_id"] = (df.index // 15).astype(str)  # 10 tournois par année
+    df["event_id"] = (df.index // 15).astype(str)  # 10 tournaments per year
     path = tmp_path / "f.parquet"
     df.to_parquet(path)
     res = T.run(df, P, YEARS, path)

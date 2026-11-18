@@ -1,8 +1,8 @@
-"""État du Registry (alias champion / previous) ; utilisé par scripts/demo_setup.sh.
+"""Registry status (champion / previous aliases); used by scripts/demo_setup.sh.
 
-  uv run python scripts/registry_status.py                    # affiche les versions et alias
-  uv run python scripts/registry_status.py --has-previous     # code 0 si l'alias previous existe
-  uv run python scripts/registry_status.py --ensure-previous  # pose previous sur la dernière version « v-historique »
+  uv run python scripts/registry_status.py                    # lists versions and aliases
+  uv run python scripts/registry_status.py --has-previous     # exit code 0 if the previous alias exists
+  uv run python scripts/registry_status.py --ensure-previous  # sets previous on the latest "v-historique" version
 """
 from __future__ import annotations
 
@@ -41,14 +41,14 @@ def main() -> int:
         hist = [int(v.version) for v in c.search_model_versions(f"name='{name}'")
                 if c.get_run(v.run_id).info.run_name == "v-historique" and str(v.version) != champ]
         if not hist:
-            print("aucune version historique distincte du champion", file=sys.stderr)
+            print("no historical version distinct from the champion", file=sys.stderr)
             return 1
         c.set_registered_model_alias(name, "previous", str(max(hist)))
         c.set_model_version_tag(name, str(max(hist)), "status", "previous")
 
     versions = sorted(c.search_model_versions(f"name='{name}'"), key=lambda v: int(v.version))
     for v in versions:
-        v = c.get_model_version(name, v.version)  # la recherche ne renvoie pas les alias
+        v = c.get_model_version(name, v.version)  # search does not return aliases
         tags = v.tags
         print(f"v{v.version:<3} {','.join(v.aliases) or '-':<10} MAE valid {tags.get('valid_mae', '?'):<9} "
               f"run {c.get_run(v.run_id).info.run_name}")

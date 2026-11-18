@@ -1,27 +1,27 @@
-"""Déclencheur : décide, à une date donnée, entre ne rien faire, réentraîner ou revenir en arrière.
+"""Trigger: decides, at a given date, between doing nothing, retraining or rolling back.
 
-Le monitoring est recalculé « as-of » (uniquement avec les tournois terminés à la date)
-sur les `consecutive_checks` derniers contrôles, puis :
+Monitoring is recomputed "as-of" (only with the tournaments finished at that date)
+over the last `consecutive_checks` checks, then:
 
-| Constat                                                       | Action          | Code |
+| Finding                                                       | Action          | Code |
 |---------------------------------------------------------------|-----------------|------|
-| rien d'anormal                                                | rien            | 0    |
-| biais/MAE dégradés, champion en service depuis longtemps      | réentraînement  | 10   |
-| alerte PSI sur une entrée                                     | incident de données : pas de réentraînement (on apprendrait le bug) | 20 |
-| biais/MAE dégradés, champion mis en service récemment         | rollback        | 30   |
+| nothing abnormal                                              | nothing         | 0    |
+| degraded bias/MAE, champion deployed long ago                 | retraining      | 10   |
+| PSI alert on an input                                         | data incident: no retraining (it would learn the bug) | 20 |
+| degraded bias/MAE, champion deployed recently                 | rollback        | 30   |
 
-« Dégradés » : alerte au dernier contrôle, ou warning/alert sur tous les derniers contrôles.
+"Degraded": alert on the last check, or warning/alert on all of the last checks.
 
-Réentraînement sans fuite et comparable : la fenêtre de décision est formée des
-`window_events` derniers tournois avant la date ; le challenger est entraîné sur tout ce
-qui précède ; **champion et challenger sont évalués sur cette même fenêtre**. Le challenger
-devient champion si sa MAE est meilleure et son |biais| pas pire.
+Leak-free, comparable retraining: the decision window is made of the last
+`window_events` tournaments before the date; the challenger is trained on everything
+before it; **champion and challenger are evaluated on that same window**. The challenger
+becomes champion if its MAE is better and its |bias| is not worse.
 
-Cette fenêtre est lue dans le **journal de l'API** dès qu'il la couvre : ce sont les entrées
-réellement vues en production, qu'un backfill ne peut pas réécrire. Sinon, repli sur la table
-de features, tracé par le tag `decision_source`.
+This window is read from the **API prediction journal** as soon as the journal covers it: these
+are the inputs actually seen in production, which a backfill cannot rewrite. Otherwise, fall back
+to the feature table, recorded by the `decision_source` tag.
 
-Usage : uv run python -m pga.trigger [--as-of 2024-02-08] [--dry-run] [--api-url http://127.0.0.1:8000]
+Usage: uv run python -m pga.trigger [--as-of 2024-02-08] [--dry-run] [--api-url http://127.0.0.1:8000]
 """
 from __future__ import annotations
 
@@ -48,9 +48,9 @@ from pga.weather import wind_median_problem
 
 OPERATIONS = "pga-operations"
 CODES = {"none": 0, "retrain": 10, "data_incident": 20, "rollback": 30}
-TRIGGER_DIR = Path(os.environ.get("PGA_TRIGGER_DIR", REPORTS / "trigger"))  # surchargeable (démo)
-ROUND_HOURS = 6   # un tour dure ≈ 5 h : score connu ≈ 6 h après le dernier départ
-EVENT_DAYS = 4    # fin d'un tournoi sans heures de départ : début + 4 jours
+TRIGGER_DIR = Path(os.environ.get("PGA_TRIGGER_DIR", REPORTS / "trigger"))  # overridable (demo)
+ROUND_HOURS = 6   # a round lasts ≈ 5 h: score known ≈ 6 h after the last tee time
+EVENT_DAYS = 4    # end of a tournament without tee times: start + 4 days
 
 
 @dataclass
@@ -63,7 +63,7 @@ class Decision:
     perf_levels: list[str]
 
 
-# --- décision -------------------------------------------------------------------------------
+# --- decision -------------------------------------------------------------------------------
 
 def perf_level(row: pd.Series, pm: dict) -> str:
     z, ratio = row.get("bias_z"), row.get("mae_ratio")
@@ -85,24 +85,24 @@ def decide(timeline: pd.DataFrame, as_of: pd.Timestamp, promoted_at: pd.Timestam
     base = dict(as_of=str(as_of.date()), champion=champion, last_status=last["status"], perf_levels=levels)
     recent = promoted_at is not None and 0 <= (as_of - promoted_at).days <= pt["recent_promotion_days"]
     if psi_alert(last):
-        if recent:  # le dernier déploiement est suspect : ses données d'entraînement diffèrent de la production
-            return Decision("rollback", f"alerte PSI juste après la mise en service de v{champion} "
-                                        f"({promoted_at.date()}) : {last['reasons']}", **base)
-        return Decision("data_incident", f"alerte PSI : {last['reasons']}", **base)
+        if recent:  # the last deployment is suspect: its training data differs from production
+            return Decision("rollback", f"PSI alert right after the deployment of v{champion} "
+                                        f"({promoted_at.date()}): {last['reasons']}", **base)
+        return Decision("data_incident", f"PSI alert: {last['reasons']}", **base)
     degraded = levels[-1] == "alert" or (len(levels) >= pt["consecutive_checks"] and "ok" not in levels)
     if not degraded:
-        return Decision("none", "performance dans les seuils", **base)
-    detail = f"biais {last['bias']:+.2f} coup (z {last['bias_z']:+.1f}), MAE ratio {last['mae_ratio']:.2f}, contrôles {levels}"
+        return Decision("none", "performance within thresholds", **base)
+    detail = f"bias {last['bias']:+.2f} strokes (z {last['bias_z']:+.1f}), MAE ratio {last['mae_ratio']:.2f}, checks {levels}"
     if recent:
-        return Decision("rollback", f"dégradation juste après la mise en service de v{champion} "
-                                    f"({promoted_at.date()}) : {detail}", **base)
-    return Decision("retrain", f"dérive confirmée : {detail}", **base)
+        return Decision("rollback", f"degradation right after the deployment of v{champion} "
+                                    f"({promoted_at.date()}): {detail}", **base)
+    return Decision("retrain", f"drift confirmed: {detail}", **base)
 
 
 # --- monitoring as-of ---------------------------------------------------------------------------
 
 def event_end(df: pd.DataFrame) -> pd.Series:
-    """Fin de chaque tournoi : dernier départ + durée d'un tour (début + 4 j si départs inconnus)."""
+    """End of each tournament: last tee time + duration of a round (start + 4 days if tee times unknown)."""
     start = df.groupby("event_id")["event_start"].min()
     fallback = start + pd.Timedelta(days=EVENT_DAYS)
     if "tee_time_utc" not in df:
@@ -111,14 +111,14 @@ def event_end(df: pd.DataFrame) -> pd.Series:
 
 
 def event_order(df: pd.DataFrame, as_of: pd.Timestamp) -> pd.Series:
-    """Tournois **terminés** à `as_of`, par date de début : un tournoi en cours apporterait
-    les scores de tours pas encore joués (fuite)."""
+    """Tournaments **finished** at `as_of`, by start date: a tournament in progress would bring
+    in the scores of rounds not yet played (leak)."""
     start = df.groupby("event_id")["event_start"].min()
     return start[event_end(df) <= as_of].sort_values()
 
 
 def monitoring_as_of(df: pd.DataFrame, as_of: pd.Timestamp, champ: M.Champion, pm: dict, k: int) -> pd.DataFrame:
-    """Les `k` derniers contrôles du monitoring avec les seuls tournois joués avant `as_of`."""
+    """The last `k` monitoring checks using only the tournaments played before `as_of`."""
     order = event_order(df, as_of)
     needed = order.index[-(pm["window_events"] + k - 1):]
     cur = df[df["event_id"].isin(needed)].copy()
@@ -126,7 +126,7 @@ def monitoring_as_of(df: pd.DataFrame, as_of: pd.Timestamp, champ: M.Champion, p
     return M.rolling_checks(cur, M.champion_reference(champ, df, pm), champ, pm, emit_from=order.iloc[-k])
 
 
-# --- réentraînement -----------------------------------------------------------------------------
+# --- retraining -----------------------------------------------------------------------------
 
 def decision_window(df: pd.DataFrame, as_of: pd.Timestamp, n_events: int) -> tuple[pd.Index, pd.Timestamp]:
     order = event_order(df, as_of)
@@ -140,7 +140,7 @@ def load_journal() -> pd.DataFrame | None:
 
 
 def journal_window(journal: pd.DataFrame | None, ids: pd.Index, min_rows: int) -> pd.DataFrame | None:
-    """Lignes notées du journal sur la fenêtre de décision ; None si elle n'est pas entièrement couverte."""
+    """Scored prediction journal rows over the decision window; None if it is not fully covered."""
     if journal is None:
         return None
     scored = journal[journal["event_id"].isin(ids) & journal[TARGET].notna()]
@@ -148,7 +148,7 @@ def journal_window(journal: pd.DataFrame | None, ids: pd.Index, min_rows: int) -
 
 
 def promotion_blocks(fit: pd.DataFrame, ref: M.Reference, pm: dict, wind_range: list[float] | None) -> list[str]:
-    """Motifs de refus d'un challenger : unité du vent, puis écart à l'entraînement du champion."""
+    """Reasons for refusing a challenger: wind unit, then deviation from the champion's training data."""
     blocks = []
     if wind_range and (problem := wind_median_problem(fit["fc_wind_mean"], wind_range)):
         blocks.append(problem)
@@ -158,16 +158,16 @@ def promotion_blocks(fit: pd.DataFrame, ref: M.Reference, pm: dict, wind_range: 
 
 def retrain(df: pd.DataFrame, as_of: pd.Timestamp, champ: M.Champion, p_train: dict, pm: dict, pt: dict,
             data_path: Path, transform: Callable[[pd.DataFrame], pd.DataFrame] | None = None,
-            transform_label: str = "aucune", promote: bool = True, guards: bool = True,
+            transform_label: str = "none", promote: bool = True, guards: bool = True,
             wind_range: list[float] | None = None, journal: pd.DataFrame | None = None) -> dict:
-    """Entraîne un challenger sur les données antérieures à la fenêtre de décision et le compare
-    au champion sur cette fenêtre. `transform` : altération des données d'entraînement et de
-    décision (backfill), utilisée par l'incident simulé.
+    """Trains a challenger on the data before the decision window and compares it to the
+    champion on that window. `transform`: alteration of the training and decision data
+    (backfill), used by the simulated incident.
 
-    `guards` : refuse la promotion si les données du challenger s'écartent de celles du champion
-    (désactivé seulement pour rejouer le scénario d'origine de l'incident).
+    `guards`: refuses the promotion if the challenger's data deviates from the champion's
+    (disabled only to replay the original incident scenario).
 
-    `journal` : journal de l'API. S'il couvre la fenêtre, la comparaison s'y fait, sans `transform`.
+    `journal`: API prediction journal. If it covers the window, the comparison is made on it, without `transform`.
     """
     ids, start = decision_window(df, as_of, pm["window_events"])
     data = transform(df) if transform else df
@@ -176,7 +176,7 @@ def retrain(df: pd.DataFrame, as_of: pd.Timestamp, champ: M.Champion, p_train: d
     dec = data[data["event_id"].isin(ids)] if logged is None else logged
     source = "backfill" if logged is None else "journal"
     if fit.empty or dec.empty:
-        raise ValueError(f"données insuffisantes au {as_of.date()} : fit={len(fit)}, décision={len(dec)}")
+        raise ValueError(f"insufficient data as of {as_of.date()}: fit={len(fit)}, decision={len(dec)}")
 
     challenger = make_model(p_train).fit(*to_xy(fit))
     X_dec, y_dec = to_xy(dec)
@@ -194,8 +194,8 @@ def retrain(df: pd.DataFrame, as_of: pd.Timestamp, champ: M.Champion, p_train: d
     with mlflow.start_run(run_name=f"retrain as-of {as_of.date()}"):
         run_id, version = log_model_run(challenger, X_dec.head(5), params_, metrics, data_path, name, True, fit, tags)
         client = MlflowClient()
-        # Seuils de monitoring de la nouvelle version : MAE mesurée sur la fenêtre de décision,
-        # bruit du biais par tournoi hérité du champion (propriété du problème, pas du modèle).
+        # Monitoring thresholds of the new version: MAE measured on the decision window,
+        # per-tournament bias noise inherited from the champion (a property of the problem, not the model).
         for k, v in {"valid_mae": m_ch["mae"], "valid_skill": m_ch["skill"],
                      "valid_event_bias_sd": champ.event_bias_sd, "as_of": str(as_of.date()),
                      "data_transform": transform_label}.items():
@@ -206,19 +206,19 @@ def retrain(df: pd.DataFrame, as_of: pd.Timestamp, champ: M.Champion, p_train: d
         else:
             client.set_model_version_tag(name, version, "status", "candidate")
         if blocks:
-            client.set_model_version_tag(name, version, "blocked_reason", " ; ".join(blocks)[:500])
-        reason = (f"challenger MAE {m_ch['mae']:.3f} / biais {m_ch['bias']:+.3f} vs champion v{champ.version} "
-                  f"MAE {m_champ['mae']:.3f} / biais {m_champ['bias']:+.3f} sur {len(ids)} tournois")
+            client.set_model_version_tag(name, version, "blocked_reason", "; ".join(blocks)[:500])
+        reason = (f"challenger MAE {m_ch['mae']:.3f} / bias {m_ch['bias']:+.3f} vs champion v{champ.version} "
+                  f"MAE {m_champ['mae']:.3f} / bias {m_champ['bias']:+.3f} on {len(ids)} tournaments")
         if logged is not None:
-            reason += " du journal de l'API"
+            reason += " from the API prediction journal"
         if blocks:
-            reason += " | promotion bloquée : " + " ; ".join(blocks)
+            reason += " | promotion blocked: " + "; ".join(blocks)
         mlflow.set_tags({"registered_version": version, "promoted": str(promoted).lower(), "promotion_reason": reason})
     return {"version": version, "promoted": promoted, "reason": reason, "run_id": run_id, "blocked": blocks,
             "challenger": m_ch, "champion": m_champ, "fit_until": str(start.date()), "decision_source": source}
 
 
-# --- exécution -------------------------------------------------------------------------------
+# --- execution -------------------------------------------------------------------------------
 
 def parse_ts(raw: str | None) -> pd.Timestamp | None:
     if not raw:
@@ -270,17 +270,17 @@ def run_trigger(as_of: pd.Timestamp | None = None, dry_run: bool = False, api_ur
     TRIGGER_DIR.mkdir(parents=True, exist_ok=True)
     text = json.dumps({"decision": asdict(decision), "outcome": outcome}, indent=2, ensure_ascii=False, default=str) + "\n"
     (TRIGGER_DIR / "latest.json").write_text(text)
-    if outcome.get("executed"):  # archive des décisions réellement exécutées
+    if outcome.get("executed"):  # archive of the decisions actually executed
         (TRIGGER_DIR / f"{decision.as_of}_{decision.action}.json").write_text(text)
     return decision, outcome
 
 
 def describe(decision: Decision, outcome: dict, dry_run: bool) -> list[str]:
-    lines = [f"[{decision.as_of}] champion v{decision.champion} -> action : {decision.action.upper()}"
-             f"{' (simulation, rien exécuté)' if dry_run else ''}", f"  {decision.reason}"]
+    lines = [f"[{decision.as_of}] champion v{decision.champion} -> action: {decision.action.upper()}"
+             f"{' (dry run, nothing executed)' if dry_run else ''}", f"  {decision.reason}"]
     if outcome.get("version"):
-        verdict = "PROMU champion" if outcome["promoted"] else "non promu"
-        lines.append(f"  challenger v{outcome['version']} : {verdict} — {outcome['reason']}")
+        verdict = "PROMOTED to champion" if outcome["promoted"] else "not promoted"
+        lines.append(f"  challenger v{outcome['version']}: {verdict} — {outcome['reason']}")
     if outcome.get("to_version"):
         lines.append(f"  rollback v{outcome['from_version']} -> v{outcome['to_version']}")
     return lines
@@ -288,10 +288,10 @@ def describe(decision: Decision, outcome: dict, dry_run: bool) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     load_dotenv(ROOT / ".env")
-    ap = argparse.ArgumentParser(description="Déclencheur réentraînement / rollback")
-    ap.add_argument("--as-of", help="date de la décision (AAAA-MM-JJ) ; défaut : dernier tournoi connu")
-    ap.add_argument("--dry-run", action="store_true", help="décider sans agir")
-    ap.add_argument("--api-url", help="API à recharger après un rollback")
+    ap = argparse.ArgumentParser(description="Retraining / rollback trigger")
+    ap.add_argument("--as-of", help="decision date (YYYY-MM-DD); default: last known tournament")
+    ap.add_argument("--dry-run", action="store_true", help="decide without acting")
+    ap.add_argument("--api-url", help="API to reload after a rollback")
     args = ap.parse_args(argv)
     mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", MLFLOW_URI))
     as_of = pd.Timestamp(args.as_of, tz="UTC") + pd.Timedelta(hours=23, minutes=59) if args.as_of else None
@@ -299,7 +299,7 @@ def main(argv: list[str] | None = None) -> int:
     text = "\n".join(describe(decision, outcome, args.dry_run))
     print(text)
     if decision.action != "none":
-        notify(f"[PGA] déclencheur\n{text}")
+        notify(f"[PGA] trigger\n{text}")
     return CODES[decision.action]
 
 

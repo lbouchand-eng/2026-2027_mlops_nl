@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Lance le déclencheur à intervalle fixe sur le registry de la stack (service Compose `scheduler`).
-# Codes 0, 10, 20, 30 : décisions normales. Tout autre code : le déclencheur a échoué.
+# Runs the trigger at a fixed interval against the stack registry (Compose `scheduler` service).
+# Codes 0, 10, 20, 30: normal decisions. Any other code: the trigger failed.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
@@ -10,8 +10,8 @@ while true; do
   case $code in
     0|10|20|30) ;;
     *)
-      echo "déclencheur en échec (code $code)" >&2
-      python -c "import sys; from pga.alerting import notify; notify(sys.argv[1])" "[PGA] déclencheur en échec (code $code)"
+      echo "trigger failed (code $code)" >&2
+      python -c "import sys; from pga.alerting import notify; notify(sys.argv[1])" "[PGA] trigger failed (code $code)"
       ;;
   esac
   sleep "${TRIGGER_INTERVAL_SECONDS:-604800}"

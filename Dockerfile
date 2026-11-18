@@ -1,5 +1,5 @@
-# Image unique pour l'API, le bootstrap du registry, l'interface MLflow et la démo.
-# Git reste dans l'image : chaque run MLflow logue le vrai commit (exigence de traçabilité).
+# Single image for the API, the registry bootstrap, the MLflow UI and the demo.
+# Git stays in the image: each MLflow run logs the real commit (traceability requirement).
 FROM python:3.12-slim
 COPY --from=ghcr.io/astral-sh/uv:0.12.23 /uv /usr/local/bin/uv
 
@@ -15,7 +15,7 @@ WORKDIR /app
 USER app
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never PATH="/app/.venv/bin:$PATH"
 
-# Dépendances d'abord : cette couche n'est reconstruite que si uv.lock change.
+# Dependencies first: this layer is only rebuilt when uv.lock changes.
 COPY --chown=app:app pyproject.toml uv.lock README.md .python-version ./
 RUN uv sync --locked --no-dev --no-install-project
 

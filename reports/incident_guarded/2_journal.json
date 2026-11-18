@@ -2,7 +2,7 @@
   "date": "2024-03-01",
   "challenger": "3",
   "promoted": false,
-  "reason": "challenger MAE 2.652 / biais +1.653 vs champion v1 MAE 2.268 / biais +0.219 sur 8 tournois du journal de l'API",
+  "reason": "challenger MAE 2.652 / bias +1.653 vs champion v1 MAE 2.268 / bias +0.219 on 8 tournaments from the API prediction journal",
   "decision_source": "journal",
   "challenger_metrics": {
     "mae": 2.6522646473222298,

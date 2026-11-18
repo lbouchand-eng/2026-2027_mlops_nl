@@ -1,172 +1,172 @@
-# Monitoring du drift
+# Drift monitoring
 
-Code : `src/pga/monitor.py`. Paramètres : `params.yaml → monitor`. Seuils PSI par feature :
-`reports/monitoring/calibration.json`. Procédure en cas d'alerte : [`runbook.md`](runbook.md).
+Code: `src/pga/monitor.py`. Parameters: `params.yaml → monitor`. PSI thresholds per feature:
+`reports/monitoring/calibration.json`. Procedure on an alert: [`runbook.md`](runbook.md).
 
-## Principe
+## Principle
 
-Après chaque tournoi, on contrôle une **fenêtre glissante des 8 derniers tournois**
-(≈ 2 mois de saison, ≈ 1 000 joueur-tours) avec deux familles de signaux.
+After each tournament, we check a **rolling window of the last 8 tournaments**
+(≈ 2 months of season, ≈ 1,000 player-rounds) with two families of signals.
 
-| Signal | Disponible | Formule | Warning | Alert |
+| Signal | Available | Formula | Warning | Alert |
 |---|---|---|---|---|
-| Drift des données | dès la prédiction | PSI de chaque feature surveillée vs données d'entraînement du champion | seuil calibré par feature | seuil calibré par feature |
-| Biais | quand les scores sont connus | `z = biais moyen par tournoi / (σ_tournoi / √n_tournois)` | \|z\| > 2 | \|z\| > 3 |
-| MAE | quand les scores sont connus | MAE de la fenêtre / MAE de validation du champion | | > 1,10 |
-| CUSUM du biais | quand les scores sont connus | `S± = max(0, S± ± z_t − k)`, `z_t = biais du tournoi / σ_tournoi`, cumulé sans fenêtre | S > 3 | S > 4 |
+| Data drift | at prediction time | PSI of each monitored feature vs the champion's training data | threshold calibrated per feature | threshold calibrated per feature |
+| Bias | once scores are known | `z = mean per-tournament bias / (σ_tournament / √n_tournaments)` | \|z\| > 2 | \|z\| > 3 |
+| MAE | once scores are known | window MAE / champion's validation MAE | | > 1.10 |
+| Bias CUSUM | once scores are known | `S± = max(0, S± ± z_t − k)`, `z_t = tournament bias / σ_tournament`, accumulated without a window | S > 3 | S > 4 |
 
-Le statut est le pire des signaux. Code de sortie : 0 `ok`, 1 `warning`, 2 `alert`.
-En dessous de 500 lignes (journal de l'API encore court, scores pas encore publiés), les
-signaux ne sont pas évalués plutôt que de lever de fausses alertes.
+The status is the worst of the signals. Exit code: 0 `ok`, 1 `warning`, 2 `alert`.
+Below 500 rows (API journal still short, scores not yet published), the
+signals are not evaluated rather than raising false alerts.
 
-La référence du PSI est le **profil enregistré avec le modèle servi** (`reference_profile.json`) :
-elle suit le champion après un rollback. Les versions sans profil utilisent `reference_years`.
-Pour un modèle standard, les deux sont identiques (2018-2022). Voir `docs/incident.md`, § 9.
+The PSI reference is the **profile registered with the served model** (`reference_profile.json`):
+it follows the champion after a rollback. Versions without a profile use `reference_years`.
+For a standard model, both are identical (2018-2022). See `docs/incident.md`, § 9.
 
-## Pourquoi un z-score du biais, et pas un seuil fixe
+## Why a bias z-score, and not a fixed threshold
 
-Tout le field d'un tournoi partage la météo et le réglage du parcours : les erreurs sont
-corrélées au sein d'un tournoi. Le biais par tournoi du champion a un écart-type de
-**0,85 coup** sur la validation 2022 (`σ_tournoi`, tag `valid_event_bias_sd` de la version
-dans le Registry). Un seuil fixe « |biais| > 0,2 » sonnerait sur la moitié des tournois.
-Le z-score ramène le biais de la fenêtre à son bruit attendu ; il est lu dans les tags du
-**champion** : après un rollback, les seuils suivent automatiquement le modèle servi.
+The whole field of a tournament shares the weather and the course setup: errors are
+correlated within a tournament. The champion's per-tournament bias has a standard deviation of
+**0.85 strokes** on the 2022 validation (`σ_tournament`, tag `valid_event_bias_sd` of the version
+in the Registry). A fixed threshold "|bias| > 0.2" would fire on half of the tournaments.
+The z-score scales the window's bias by its expected noise; it is read from the
+**champion's** tags: after a rollback, the thresholds automatically follow the served model.
 
-## Pourquoi un CUSUM en plus du z-score
+## Why a CUSUM on top of the z-score
 
-Le z-score est une moyenne sur 8 tournois : un biais qui apparaît est dilué par les tournois
-sains de la fenêtre, d'où 4 tournois pour détecter l'incident ci-dessous. Le CUSUM (Page,
-1954) ne moyenne pas, il **accumule** : chaque tournoi ajoute `z_t − k` à la somme, qui ne
-descend jamais sous 0. Le bruit centré est absorbé par `k`, un petit biais qui se répète
-s'additionne. Deux sommes, une par sens (prédictions trop hautes / trop basses).
+The z-score is an average over 8 tournaments: an emerging bias is diluted by the healthy
+tournaments in the window, hence 4 tournaments to detect the incident below. The CUSUM (Page,
+1954) does not average, it **accumulates**: each tournament adds `z_t − k` to the sum, which never
+goes below 0. Centered noise is absorbed by `k`; a small bias that repeats
+adds up. Two sums, one per direction (predictions too high / too low).
 
-- `k = 0,5` : réglage standard pour détecter un décalage de 1 σ_tournoi (≈ 0,85 coup).
-- Seuils vérifiés **hors échantillon** : modèle entraîné jusqu'à l'année N−1, évalué sur N,
-  pour N = 2019 à 2022 (167 tournois). Toutes les alertes (S > 4) tombent en **2020**
-  (saison Covid, biais moyen −0,44 coup : une vraie rupture) ; aucune en 2019, 2021, 2022.
-  Avec S > 5, une seule alerte, aussi en 2020 : 4 est le compromis retenu.
-- Le CUSUM est lu dans le même tag `valid_event_bias_sd` du champion que le z-score.
+- `k = 0.5`: standard setting to detect a shift of 1 σ_tournament (≈ 0.85 strokes).
+- Thresholds checked **out of sample**: model trained up to year N−1, evaluated on N,
+  for N = 2019 to 2022 (167 tournaments). All alerts (S > 4) fall in **2020**
+  (Covid season, mean bias −0.44 strokes: a real break); none in 2019, 2021, 2022.
+  With S > 5, a single alert, also in 2020: 4 is the chosen compromise.
+- The CUSUM reads the same `valid_event_bias_sd` tag of the champion as the z-score.
 
-Limite : le déclencheur (`trigger.py`) décide toujours sur le z-score et la MAE ; il ne voit
-que les derniers tournois (« as-of »), ce qui tronquerait le cumul. Le CUSUM accélère l'alerte
-et le rollback manuel du runbook, pas encore la décision automatique.
+Limitation: the trigger (`trigger.py`) still decides on the z-score and the MAE; it only sees
+the latest tournaments ("as-of"), which would truncate the accumulation. The CUSUM speeds up the alert
+and the runbook's manual rollback, not yet the automatic decision.
 
-## Pourquoi des seuils PSI calibrés par feature
+## Why PSI thresholds calibrated per feature
 
-Sur 8 tournois, la météo prévue dépend de la saison et de la région (Hawaï en janvier,
-Écosse en juillet). Avec les seuils usuels 0,1 / 0,25, le replay de 2023-2024 levait des
-alertes sur 53 contrôles sur 89. On mesure donc le **PSI naturel** sur 204 fenêtres de la
-période de référence 2018-2022 (chaque fenêtre comparée à la référence privée de ses
-propres années), puis : warning = quantile 99 %, alert = 1,5 × maximum observé, avec des
-planchers à 0,10 / 0,25.
+Over 8 tournaments, the weather forecast depends on the season and the region (Hawaii in January,
+Scotland in July). With the usual 0.1 / 0.25 thresholds, the 2023-2024 replay raised
+alerts on 53 checks out of 89. We therefore measure the **natural PSI** over 204 windows of the
+2018-2022 reference period (each window compared with the reference excluding its
+own years), then: warning = 99% quantile, alert = 1.5 × observed maximum, with
+floors at 0.10 / 0.25.
 
 | Feature | warning | alert |
 |---|---|---|
-| `form_rel_short`, `form_ewm` | 0,10 | 0,25 |
-| `form_rel_long` | 0,14 | 0,25 |
-| `form_rel_xlong` | 0,21 | 0,42 |
-| `form_ewm_slow` | 0,18 | 0,30 |
-| `days_since_last` | 1,01 | 1,67 |
-| `course_rel_mean` | 0,37 | 0,67 |
-| `fc_temp_mean` | 2,51 | 4,02 |
-| `fc_humidity_mean` | 1,54 | 2,80 |
-| `fc_precip_sum` | 0,72 | 1,10 |
-| `fc_wind_mean` | 0,97 | 1,57 |
-| `fc_gust_max` | 1,46 | 3,26 |
+| `form_rel_short`, `form_ewm` | 0.10 | 0.25 |
+| `form_rel_long` | 0.14 | 0.25 |
+| `form_rel_xlong` | 0.21 | 0.42 |
+| `form_ewm_slow` | 0.18 | 0.30 |
+| `days_since_last` | 1.01 | 1.67 |
+| `course_rel_mean` | 0.37 | 0.67 |
+| `fc_temp_mean` | 2.51 | 4.02 |
+| `fc_humidity_mean` | 1.54 | 2.80 |
+| `fc_precip_sum` | 0.72 | 1.10 |
+| `fc_wind_mean` | 0.97 | 1.57 |
+| `fc_gust_max` | 1.46 | 3.26 |
 
-Features non surveillées par PSI : `n_rounds_hist` et `course_n_rounds` (compteurs qui
-croissent mécaniquement avec le temps) et les features constantes par tournoi (parcours,
-contexte), dont la distribution sur 8 tournois n'a pas de sens.
+Features not monitored by PSI: `n_rounds_hist` and `course_n_rounds` (counters that
+grow mechanically over time) and the features constant per tournament (course,
+context), whose distribution over 8 tournaments is meaningless.
 
-## Résultats
+## Results
 
-### Drift naturel 2023-2024 (`timeline_replay.png`)
+### Natural drift 2023-2024 (`timeline_replay.png`)
 
-89 contrôles : **79 ok, 9 warning, 1 alerte**.
-- **Biais** : warnings du 18 janvier au 1er février 2024, biais de +0,61 à +0,65 coup
-  (z = 2,0 à 2,2). Le field joue de plus en plus bas, et le modèle, entraîné sur 2018-2022,
-  surestime les scores. La MAE reste stable (ratio < 1,05) : sans le suivi du biais, cette
-  dérive passerait inaperçue.
-- **Seule alerte** : le Q-School de décembre 2023, un field de joueurs sans historique sur
-  le PGA Tour, absent de la période de référence. C'est une vraie nouvelle population.
-- Le reste : des warnings isolés sur la météo ou la forme, sans effet sur la performance.
-- **CUSUM** : aucun statut modifié. Il dépasse le seuil de warning une seule fois (3,3 le
-  18 janvier 2024, contrôle déjà en warning par le z-score) et n'atteint jamais l'alerte.
+89 checks: **79 ok, 9 warning, 1 alert**.
+- **Bias**: warnings from January 18 to February 1, 2024, bias of +0.61 to +0.65 strokes
+  (z = 2.0 to 2.2). The field scores lower and lower, and the model, trained on 2018-2022,
+  overestimates the scores. The MAE stays stable (ratio < 1.05): without bias tracking, this
+  drift would go unnoticed.
+- **Only alert**: the December 2023 Q-School, a field of players with no PGA Tour
+  history, absent from the reference period. It is a genuinely new population.
+- The rest: isolated warnings on weather or form, with no effect on performance.
+- **CUSUM**: no status changed. It crosses the warning threshold only once (3.3 on
+  January 18, 2024, a check already in warning from the z-score) and never reaches the alert.
 
-**Lecture** : dérive lente, détectée au niveau warning ; elle justifie un réentraînement
-planifié, pas une intervention d'urgence.
+**Reading**: slow drift, detected at warning level; it justifies a scheduled
+retraining, not an emergency intervention.
 
-### Incident simulé : vent prévu +15 km/h à partir du 1er mars 2024 (`timeline_incident.png`)
+### Simulated incident: forecast wind +15 km/h from March 1, 2024 (`timeline_incident.png`)
 
 ```bash
 uv run python -m pga.monitor replay --years 2023 2024 --inject fc_wind_mean+15 --since 2024-03-01
 ```
 
-| Tournoi | Statut sans CUSUM | Statut avec CUSUM | PSI vent | Biais | z | CUSUM |
+| Tournament | Status without CUSUM | Status with CUSUM | Wind PSI | Bias | z | CUSUM |
 |---|---|---|---|---|---|---|
-| 29 fév., Cognizant Classic (avant l'injection) | ok | ok | 0,35 | +0,31 | 1,0 | 1,9 |
-| 7 mars, Puerto Rico Open (1re semaine touchée) | ok | **warning** | 0,42 | +0,51 | 1,7 | 3,6 |
-| 7 mars, Arnold Palmer Invitational | ok | **alert** | 0,42 | +0,60 | 2,0 | 4,9 |
-| 14 mars, THE PLAYERS | warning | alert | 0,74 | +0,77 | 2,6 | 5,3 |
-| 28 mars, Houston Open | alert | alert | 1,62 | +1,03 | 3,4 | 7,7 |
-| 11 avril, Masters | alert | alert | 3,47 | +1,21 | 4,0 | 8,6 |
+| Feb. 29, Cognizant Classic (before injection) | ok | ok | 0.35 | +0.31 | 1.0 | 1.9 |
+| March 7, Puerto Rico Open (1st affected week) | ok | **warning** | 0.42 | +0.51 | 1.7 | 3.6 |
+| March 7, Arnold Palmer Invitational | ok | **alert** | 0.42 | +0.60 | 2.0 | 4.9 |
+| March 14, THE PLAYERS | warning | alert | 0.74 | +0.77 | 2.6 | 5.3 |
+| March 28, Houston Open | alert | alert | 1.62 | +1.03 | 3.4 | 7.7 |
+| April 11, Masters | alert | alert | 3.47 | +1.21 | 4.0 | 8.6 |
 
-Sans CUSUM, détection en **4 tournois** : la fenêtre de 8 tournois dilue les premiers
-tournois touchés. Une fenêtre plus courte détecterait plus vite mais lèverait plus de
-fausses alertes. Avec le CUSUM, **alerte dès la 1re semaine touchée** (3 semaines plus tôt),
-sans alerte supplémentaire sur le drift naturel. À noter : le CUSUM entre en mars à 1,9,
-déjà chargé par la dérive naturelle de janvier ; c'est voulu (un biais qui revient dans le
-même sens est plus suspect), mais il faut le dire en lisant ce gain.
+Without CUSUM, detection in **4 tournaments**: the 8-tournament window dilutes the first
+affected tournaments. A shorter window would detect faster but raise more
+false alerts. With the CUSUM, **alert from the 1st affected week** (3 weeks earlier),
+with no additional alert on the natural drift. Note: the CUSUM enters March at 1.9,
+already loaded by the natural January drift; this is intended (a bias that comes back in the
+same direction is more suspicious), but it should be said when reading this gain.
 
-## Sorties
+## Outputs
 
-| Fichier | Contenu |
+| File | Content |
 |---|---|
-| `reports/monitoring/latest.json` | dernier contrôle : statut, raisons, signaux, modèle (lu par le déclencheur) |
-| `reports/monitoring/summary_<scénario>.json` | même contenu, par scénario de replay |
-| `reports/monitoring/timeline_<scénario>.csv` / `.png` | un contrôle par tournoi |
-| `reports/monitoring/calibration.json` | distribution du PSI naturel et seuils par feature |
-| MLflow, expérience `pga-monitoring` | un run par commande, métriques par tournoi (`step`) |
-| Pushgateway (`check`, si `PUSHGATEWAY_URL`) | dernier contrôle, job `pga_monitor`, affiché dans Grafana (ci-dessous) |
+| `reports/monitoring/latest.json` | latest check: status, reasons, signals, model (read by the trigger) |
+| `reports/monitoring/summary_<scenario>.json` | same content, per replay scenario |
+| `reports/monitoring/timeline_<scenario>.csv` / `.png` | one check per tournament |
+| `reports/monitoring/calibration.json` | natural PSI distribution and thresholds per feature |
+| MLflow, experiment `pga-monitoring` | one run per command, metrics per tournament (`step`) |
+| Pushgateway (`check`, if `PUSHGATEWAY_URL`) | latest check, job `pga_monitor`, shown in Grafana (below) |
 
-## Tableau de bord (Prometheus + Grafana)
+## Dashboard (Prometheus + Grafana)
 
-`docker compose --profile observability up -d --build` ajoute Prometheus (:9090), une
-Pushgateway (:9091) et Grafana (:3000, accès anonyme, ports limités à la machine locale).
-Configuration versionnée dans `observability/` : `prometheus.yml`, source de données et
-dashboard « PGA MLOps » provisionnés en fichiers (aucun réglage à la main).
+`docker compose --profile observability up -d --build` adds Prometheus (:9090), a
+Pushgateway (:9091) and Grafana (:3000, anonymous access, ports bound to the local machine).
+Versioned configuration in `observability/`: `prometheus.yml`, data source and
+"PGA MLOps" dashboard provisioned as files (no manual setup).
 
-- **API** : Prometheus scrape `api:8000/metrics` toutes les 5 s (requêtes par route et
-  statut, latence de l'inférence, lignes prédites par version, rechargements, version servie).
-- **Monitoring** : `monitor check` est un processus court, que Prometheus ne peut pas scraper.
-  Si `PUSHGATEWAY_URL` est défini (`http://pushgateway:9091` dans la stack), il pousse son
-  dernier contrôle :
+- **API**: Prometheus scrapes `api:8000/metrics` every 5 s (requests per route and
+  status, inference latency, predicted rows per version, reloads, served version).
+- **Monitoring**: `monitor check` is a short-lived process that Prometheus cannot scrape.
+  If `PUSHGATEWAY_URL` is set (`http://pushgateway:9091` in the stack), it pushes its
+  latest check:
 
-| Métrique | Contenu |
+| Metric | Content |
 |---|---|
 | `pga_drift_status` | 0 ok, 1 warning, 2 alert |
-| `pga_monitor_model_version` | version du champion contrôlé |
-| `pga_bias`, `pga_bias_z` | biais de la fenêtre (coups) et son z-score |
-| `pga_mae_ratio` | MAE de la fenêtre / MAE de validation |
-| `pga_psi_max{feature}` | PSI de la feature la plus proche de son seuil d'alerte |
-| `pga_cusum{direction="up"\|"down"}` | CUSUM du biais par tournoi |
+| `pga_monitor_model_version` | version of the checked champion |
+| `pga_bias`, `pga_bias_z` | window bias (strokes) and its z-score |
+| `pga_mae_ratio` | window MAE / validation MAE |
+| `pga_psi_max{feature}` | PSI of the feature closest to its alert threshold |
+| `pga_cusum{direction="up"\|"down"}` | CUSUM of the per-tournament bias |
 
-Chaque push remplace tout le groupe `job=pga_monitor` : un signal non évalué (journal trop
-court, scores pas encore connus) disparaît au lieu de garder une valeur périmée. Une
-Pushgateway injoignable est signalée sur stderr sans interrompre le contrôle ; `latest.json`
-reste la source lue par le déclencheur. Sans `PUSHGATEWAY_URL`, rien ne change.
+Each push replaces the whole `job=pga_monitor` group: a signal that is not evaluated (journal too
+short, scores not yet known) disappears instead of keeping a stale value. An unreachable
+Pushgateway is reported on stderr without interrupting the check; `latest.json`
+remains the source read by the trigger. Without `PUSHGATEWAY_URL`, nothing changes.
 
-Le dashboard reprend les seuils de ce document (z = 2 / 3, ratio de MAE 1,10, CUSUM 3 / 4).
-`scripts/demo_live.sh` joue l'incident sur cette stack : alerte, rollback, retour à ok
-(README, « Démo sur la stack visible »).
+The dashboard uses the thresholds of this document (z = 2 / 3, MAE ratio 1.10, CUSUM 3 / 4).
+`scripts/demo_live.sh` plays the incident on this stack: alert, rollback, back to ok
+(README, "Demo on the visible stack").
 
-## Commandes
+## Commands
 
 ```bash
-uv run python -m pga.monitor calibrate        # recalcule les seuils PSI (après changement de référence)
+uv run python -m pga.monitor calibrate        # recompute the PSI thresholds (after a reference change)
 uv run python -m pga.monitor replay --years 2023 2024
 uv run python -m pga.monitor replay --years 2023 2024 --inject fc_wind_mean*3.6 --since 2024-03-01 --name incident
-uv run python -m pga.monitor check            # production : journal de l'API + scores réels
-PUSHGATEWAY_URL=http://127.0.0.1:9091 uv run python -m pga.monitor check   # + push vers la Pushgateway de la stack
-uv run python -m pga.monitor backfill-tags    # tag valid_event_bias_sd sur les versions anciennes
+uv run python -m pga.monitor check            # production: API journal + actual scores
+PUSHGATEWAY_URL=http://127.0.0.1:9091 uv run python -m pga.monitor check   # + push to the stack's Pushgateway
+uv run python -m pga.monitor backfill-tags    # valid_event_bias_sd tag on older versions
 ```

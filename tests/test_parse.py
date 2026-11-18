@@ -36,7 +36,7 @@ def test_masters_2024():
     assert dech.loc[1, "strokes"] == 65 and dech.loc[1, "to_par"] == -7
     assert dech.loc[1, "tee_time_utc"] == "2024-04-11T15:18Z"
     assert (df.par_played == 72).all()
-    # 89 joueurs au départ : 4 tours pour ceux qui passent le cut, 2 pour les autres
+    # 89 players at the start: 4 rounds for those who make the cut, 2 for the others
     assert df.groupby("player_id")["round"].max().isin([2, 4]).mean() > 0.95
     assert not df.duplicated(["player_id", "round"]).any()
 
@@ -55,7 +55,7 @@ def test_players_2023():
 
 def test_excluded_by_name():
     _, reason = parse_leaderboard(load("espn_leaderboard_401580344.json"), ("Masters",))
-    assert reason == "exclu par nom"
+    assert reason == "excluded by name"
 
 
 def test_non_medal_excluded():
@@ -88,7 +88,7 @@ def test_aggregate_window():
     tees = pd.Series(pd.to_datetime(["2024-04-11T10:20Z", "2024-04-11T10:20Z", None], utc=True), index=[7, 8, 9])
     out = aggregate_window(hourly, tees, 5, "fc")
     assert list(out.index) == [7, 8, 9]
-    assert out.loc[7, "fc_wind_mean"] == pytest.approx(12.0)  # heures 10..14
+    assert out.loc[7, "fc_wind_mean"] == pytest.approx(12.0)  # hours 10..14
     assert out.loc[7, "fc_gust_max"] == 28.0
     assert out.loc[7, "fc_precip_sum"] == 5.0
     assert out.loc[9].isna().all()

@@ -1,20 +1,20 @@
 {
-  "scenario": "backfill vent en m/s (÷3,6) sur tout l'historique",
+  "scenario": "backfill wind in m/s (÷3.6) over the full history",
   "corrupted_at": "2024-03-01",
   "guards": true,
   "steps": {
     "1_setup": {
       "champion": "1",
       "valid_mae": 2.379929047168928,
-      "promoted_at": "2023-01-01 (mise en service simulée)"
+      "promoted_at": "2023-01-01 (simulated deployment)"
     },
     "2_blocked": {
       "date": "2024-03-01",
       "challenger": "2",
       "promoted": false,
-      "reason": "challenger MAE 2.261 / biais +0.045 vs champion v1 MAE 2.316 / biais -0.285 sur 8 tournois | promotion bloquée : médiane du vent 3.0 km/h hors de la plage [6, 20] ; PSI fc_gust_max = 6.05 > 3.26 ; PSI fc_wind_mean = 5.20 > 1.57",
+      "reason": "challenger MAE 2.261 / bias +0.045 vs champion v1 MAE 2.316 / bias -0.285 on 8 tournaments | promotion blocked: wind median 3.0 km/h outside the range [6, 20]; PSI fc_gust_max = 6.05 > 3.26; PSI fc_wind_mean = 5.20 > 1.57",
       "blocked": [
-        "médiane du vent 3.0 km/h hors de la plage [6, 20]",
+        "wind median 3.0 km/h outside the range [6, 20]",
         "PSI fc_gust_max = 6.05 > 3.26",
         "PSI fc_wind_mean = 5.20 > 1.57"
       ]
@@ -23,7 +23,7 @@
       "date": "2024-03-01",
       "challenger": "4",
       "promoted": true,
-      "reason": "challenger MAE 2.261 / biais +0.045 vs champion v1 MAE 2.316 / biais -0.285 sur 8 tournois",
+      "reason": "challenger MAE 2.261 / bias +0.045 vs champion v1 MAE 2.316 / bias -0.285 on 8 tournaments",
       "challenger_metrics": {
         "mae": 2.261295321837477,
         "rmse": 2.865180656451864,
@@ -48,13 +48,13 @@
         "mae_r3": 2.5577785017026993,
         "mae_r4": 2.2679040402589807
       },
-      "data_transform": "backfill vent en m/s (÷3,6) sur tout l'historique"
+      "data_transform": "backfill wind in m/s (÷3.6) over the full history"
     },
     "2_journal": {
       "date": "2024-03-01",
       "challenger": "3",
       "promoted": false,
-      "reason": "challenger MAE 2.652 / biais +1.653 vs champion v1 MAE 2.268 / biais +0.219 sur 8 tournois du journal de l'API",
+      "reason": "challenger MAE 2.652 / bias +1.653 vs champion v1 MAE 2.268 / bias +0.219 on 8 tournaments from the API prediction journal",
       "decision_source": "journal",
       "challenger_metrics": {
         "mae": 2.6522646473222298,
@@ -87,7 +87,7 @@
         "as_of": "2024-03-11",
         "event": "Arnold Palmer Invitational pres. by Mastercard",
         "action": "rollback",
-        "reason": "alerte PSI juste après la mise en service de v4 (2024-03-01) : [alert] PSI fc_gust_max = 5.69 > 3.26 | [alert] PSI fc_wind_mean = 4.25 > 1.57",
+        "reason": "PSI alert right after the deployment of v4 (2024-03-01): [alert] PSI fc_gust_max = 5.69 > 3.26 | [alert] PSI fc_wind_mean = 4.25 > 1.57",
         "tournaments_after_corruption": 1
       },
       "checks": 19,

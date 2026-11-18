@@ -163,7 +163,7 @@ def incident() -> None:
     """The m/s backfill incident: bias z-score of v2 vs v1, and PSI before vs after the fixes."""
     inc = ROOT / "reports" / "incident"
     v2 = pd.read_csv(inc / "timeline_detection.csv", parse_dates=["event_start"])
-    v1 = pd.read_csv(inc / "timeline_apres_rollback.csv", parse_dates=["event_start"])
+    v1 = pd.read_csv(inc / "timeline_after_rollback.csv", parse_dates=["event_start"])
     fixed = pd.read_csv(ROOT / "reports" / "incident_guarded" / "timeline_detection.csv",
                         parse_dates=["event_start"])
     promoted = pd.Timestamp("2024-03-01", tz="UTC")
