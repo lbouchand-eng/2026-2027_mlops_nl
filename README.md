@@ -54,7 +54,29 @@ docker compose run --rm --build -e DEMO_ARGS=--no-pause demo   # d'une traite
 docker compose down -v                                      # arrêt et remise à zéro du registry
 ```
 
-Sans Docker, après le `dvc pull` : `uv run pytest` (114 tests, aucune donnée requise),
+### Démo sur la stack visible (Grafana, MLflow, Swagger)
+
+```bash
+docker compose --profile observability up -d --build       # + Prometheus, Pushgateway, Grafana
+bash scripts/demo_live.sh --prepare                         # avant l'oral (≈ 2 min) : registry de la stack -> « incident »
+bash scripts/demo_live.sh                                   # même scénario que demo.sh, pause à chaque étape
+```
+
+| Interface | Adresse | Ce qu'on y voit pendant la démo |
+|---|---|---|
+| Grafana, dashboard « PGA MLOps » | http://127.0.0.1:3000 | requêtes/s, latence p50/p95, lignes prédites par version, version servie, statut et signaux du drift |
+| MLflow, modèle `pga-score-model` | http://127.0.0.1:5001/#/models/pga-score-model | alias `champion` / `previous` qui basculent au rollback, runs de monitoring et d'opérations |
+| Swagger | http://127.0.0.1:8000/docs | `/health` avant et après le rollback |
+| Prometheus / Pushgateway | http://127.0.0.1:9090 / :9091 | données brutes du dashboard |
+
+`demo_live.sh` lance chaque commande dans le conteneur `api` (seul Docker est requis) et affiche à
+chaque étape l'URL à regarder. `--prepare` **remplace** le registry de la stack par celui de
+l'incident (v1 saine, v2 réentraînée sur le backfill corrompu et servie) et vide le journal des
+prédictions ; `docker compose down -v` revient au registry standard. Grafana est en accès anonyme
+sans mot de passe (port limité à la machine locale). `demo.sh` et le service `demo`, sur un
+registry isolé, restent inchangés.
+
+Sans Docker, après le `dvc pull` : `uv run pytest` (119 tests, aucune donnée requise),
 `bash scripts/demo_setup.sh` puis `uv run uvicorn pga.api:app`. Pour tout reconstruire
 depuis les API publiques plutôt que depuis la Release : `uv run dvc repro` (≈ 40 min).
 
@@ -150,7 +172,9 @@ curl -s -X POST localhost:8000/reload        # après un rollback ou une promoti
 - `/reload` exige l'en-tête `X-API-Key` si `PGA_API_KEY` est défini dans `.env` ; le rollback et
   le déclencheur l'envoient. Sans cette variable, pas de contrôle (ports limités à la machine locale).
 - `GET /metrics` (format Prometheus) : requêtes par route et statut, latence de l'inférence,
-  lignes prédites par version, rechargements, version servie.
+  lignes prédites par version, rechargements, version servie. Scrapé toutes les 5 s par le
+  Prometheus du profil Compose `observability`, affiché dans le dashboard Grafana « PGA MLOps »
+  (`observability/`).
 - Tests d'intégration (`tests/test_api.py`) : vrai modèle entraîné dans un MLflow
   temporaire, vérification de la version servie, du journal, des 422/503 et du
   rechargement après déplacement de l'alias.
@@ -168,6 +192,9 @@ uv run python -m pga.rollback --reason "..." --api-url http://127.0.0.1:8000   #
   z-score du biais par tournoi et ratio de MAE (seuils lus dans les tags du champion) ;
   plus un CUSUM du biais par tournoi, cumulé sans fenêtre, contre les petites dérives persistantes.
   Statut `ok` / `warning` / `alert`, avec le code de sortie 0 / 1 / 2.
+- Avec `PUSHGATEWAY_URL`, `monitor check` pousse aussi son statut et ses signaux vers la
+  Pushgateway (`pga_drift_status`, `pga_bias`, `pga_bias_z`, `pga_mae_ratio`, `pga_psi_max`,
+  `pga_cusum`), lus par Prometheus et Grafana. Sans la variable, rien ne change.
 - Drift naturel 2023-2024 : 79 ok, 9 warning (biais de +0,65 coup début 2024), 1 alerte.
   Incident « vent +15 km/h » : alerte dès la 1re semaine touchée grâce au CUSUM (4 tournois sans). Le PSI est calculé par rapport aux
   données d'entraînement du modèle servi (`reference_profile.json`).
@@ -203,6 +230,7 @@ uv run python scripts/incident.py all       # scénario complet -> reports/incid
 uv run python scripts/incident.py all --guards   # même panne après correctifs -> reports/incident_guarded/
 bash scripts/demo.sh --prepare               # avant l'oral : champion = version corrompue
 bash scripts/demo.sh                         # démo en direct, pause entre chaque étape
+bash scripts/demo_live.sh --prepare && bash scripts/demo_live.sh   # la même, sur la stack Compose + Grafana
 ```
 
 Scénario : le 1er mars 2024, un réentraînement de routine se fait sur un backfill météo

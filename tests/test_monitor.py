@@ -257,3 +257,85 @@ def test_check_on_api_log(setup, monkeypatch, tmp_path):
     assert M.cmd_check(SimpleNamespace(), MP, setup["name"]) == 0
     latest = json.loads((setup["out"] / "latest.json").read_text())
     assert latest["status"] == "ok" and any("non évalué" in r for r in latest["reasons"])
+
+
+# --- Pushgateway -----------------------------------------------------------------------------
+
+LATEST = {"status": "alert", "model": {"version": "2"}, "psi_max_feature": "fc_wind_mean",
+          "signals": {"psi_max": 0.42, "bias": 1.79, "bias_z": 5.9, "mae_ratio": 1.21, "cusum_up": 7.7, "cusum_down": 0.0}}
+
+
+class Gateway:
+    """Pushgateway factice : garde ce qui aurait été envoyé, au format d'exposition Prometheus."""
+
+    def __init__(self):
+        self.pushes = []
+
+    def __call__(self, url, job, registry, timeout):
+        samples = {(s.name, tuple(sorted(s.labels.items()))): s.value for m in registry.collect() for s in m.samples}
+        self.pushes.append({"url": url, "job": job, "samples": samples})
+
+
+@pytest.fixture
+def gateway(monkeypatch):
+    gw = Gateway()
+    monkeypatch.setattr(M, "push_to_gateway", gw)
+    return gw
+
+
+def test_push_metrics_without_url_sends_nothing(gateway, monkeypatch):
+    monkeypatch.delenv("PUSHGATEWAY_URL", raising=False)
+    assert M.push_metrics(LATEST) is False and gateway.pushes == []
+
+
+def test_push_metrics_sends_every_signal(gateway, monkeypatch):
+    monkeypatch.setenv("PUSHGATEWAY_URL", "http://pushgateway:9091")
+    assert M.push_metrics(LATEST) is True
+    (push,) = gateway.pushes
+    assert push["url"] == "http://pushgateway:9091" and push["job"] == "pga_monitor"
+    s = push["samples"]
+    assert s[("pga_drift_status", ())] == 2 and s[("pga_monitor_model_version", ())] == 2
+    assert s[("pga_bias", ())] == 1.79 and s[("pga_bias_z", ())] == 5.9 and s[("pga_mae_ratio", ())] == 1.21
+    assert s[("pga_psi_max", (("feature", "fc_wind_mean"),))] == 0.42
+    assert s[("pga_cusum", (("direction", "up"),))] == 7.7 and s[("pga_cusum", (("direction", "down"),))] == 0.0
+
+
+def test_push_metrics_skips_signals_not_evaluated(gateway, monkeypatch):
+    monkeypatch.setenv("PUSHGATEWAY_URL", "http://pushgateway:9091")
+    none = {k: None for k in LATEST["signals"]}
+    M.push_metrics({**LATEST, "status": "ok", "signals": none})
+    names = {n for n, _ in gateway.pushes[0]["samples"]}
+    assert names == {"pga_drift_status", "pga_monitor_model_version"}
+    assert gateway.pushes[0]["samples"][("pga_drift_status", ())] == 0
+
+
+def test_push_failure_does_not_break_the_check(monkeypatch, capsys):
+    def down(*a, **k):
+        raise OSError("connexion refusée")
+
+    monkeypatch.setattr(M, "push_to_gateway", down)
+    monkeypatch.setenv("PUSHGATEWAY_URL", "http://pushgateway:9091")
+    assert M.push_metrics(LATEST) is False
+    assert "Pushgateway" in capsys.readouterr().err
+
+
+def test_check_pushes_its_status(setup, gateway, monkeypatch, tmp_path):
+    df = make_events(make_features())
+    cur = df[df.year == 2023].head(30).assign(player_id=[f"P{i}" for i in range(30)])
+    log = cur[["event_id", "player_id", "round"] + [f for f in FEATURES if f != "round"]].copy()
+    log["ts"] = pd.Timestamp("2024-01-01", tz="UTC")
+    log["model_version"] = setup["version"]
+    log["prediction"] = 0.0
+    log.to_parquet(tmp_path / "log.parquet")
+    monkeypatch.setenv("PREDICTIONS_LOG", str(tmp_path / "log.parquet"))
+    monkeypatch.setattr(M, "ROUNDS", tmp_path / "pas_de_scores.parquet")
+
+    monkeypatch.delenv("PUSHGATEWAY_URL", raising=False)
+    M.cmd_check(SimpleNamespace(), MP, setup["name"])
+    assert gateway.pushes == []  # sans la variable, rien ne change
+
+    monkeypatch.setenv("PUSHGATEWAY_URL", "http://pushgateway:9091")
+    code = M.cmd_check(SimpleNamespace(), MP, setup["name"])
+    (push,) = gateway.pushes
+    assert push["samples"][("pga_drift_status", ())] == code
+    assert push["samples"][("pga_monitor_model_version", ())] == int(setup["version"])

@@ -127,6 +127,38 @@ même sens est plus suspect), mais il faut le dire en lisant ce gain.
 | `reports/monitoring/timeline_<scénario>.csv` / `.png` | un contrôle par tournoi |
 | `reports/monitoring/calibration.json` | distribution du PSI naturel et seuils par feature |
 | MLflow, expérience `pga-monitoring` | un run par commande, métriques par tournoi (`step`) |
+| Pushgateway (`check`, si `PUSHGATEWAY_URL`) | dernier contrôle, job `pga_monitor`, affiché dans Grafana (ci-dessous) |
+
+## Tableau de bord (Prometheus + Grafana)
+
+`docker compose --profile observability up -d --build` ajoute Prometheus (:9090), une
+Pushgateway (:9091) et Grafana (:3000, accès anonyme, ports limités à la machine locale).
+Configuration versionnée dans `observability/` : `prometheus.yml`, source de données et
+dashboard « PGA MLOps » provisionnés en fichiers (aucun réglage à la main).
+
+- **API** : Prometheus scrape `api:8000/metrics` toutes les 5 s (requêtes par route et
+  statut, latence de l'inférence, lignes prédites par version, rechargements, version servie).
+- **Monitoring** : `monitor check` est un processus court, que Prometheus ne peut pas scraper.
+  Si `PUSHGATEWAY_URL` est défini (`http://pushgateway:9091` dans la stack), il pousse son
+  dernier contrôle :
+
+| Métrique | Contenu |
+|---|---|
+| `pga_drift_status` | 0 ok, 1 warning, 2 alert |
+| `pga_monitor_model_version` | version du champion contrôlé |
+| `pga_bias`, `pga_bias_z` | biais de la fenêtre (coups) et son z-score |
+| `pga_mae_ratio` | MAE de la fenêtre / MAE de validation |
+| `pga_psi_max{feature}` | PSI de la feature la plus proche de son seuil d'alerte |
+| `pga_cusum{direction="up"\|"down"}` | CUSUM du biais par tournoi |
+
+Chaque push remplace tout le groupe `job=pga_monitor` : un signal non évalué (journal trop
+court, scores pas encore connus) disparaît au lieu de garder une valeur périmée. Une
+Pushgateway injoignable est signalée sur stderr sans interrompre le contrôle ; `latest.json`
+reste la source lue par le déclencheur. Sans `PUSHGATEWAY_URL`, rien ne change.
+
+Le dashboard reprend les seuils de ce document (z = 2 / 3, ratio de MAE 1,10, CUSUM 3 / 4).
+`scripts/demo_live.sh` joue l'incident sur cette stack : alerte, rollback, retour à ok
+(README, « Démo sur la stack visible »).
 
 ## Commandes
 
@@ -135,5 +167,6 @@ uv run python -m pga.monitor calibrate        # recalcule les seuils PSI (après
 uv run python -m pga.monitor replay --years 2023 2024
 uv run python -m pga.monitor replay --years 2023 2024 --inject fc_wind_mean*3.6 --since 2024-03-01 --name incident
 uv run python -m pga.monitor check            # production : journal de l'API + scores réels
+PUSHGATEWAY_URL=http://127.0.0.1:9091 uv run python -m pga.monitor check   # + push vers la Pushgateway de la stack
 uv run python -m pga.monitor backfill-tags    # tag valid_event_bias_sd sur les versions anciennes
 ```

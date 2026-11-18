@@ -10,7 +10,7 @@ Les seuils de performance sont lus dans les tags de la version **champion** du R
 
 Commandes :
   uv run python -m pga.monitor replay --years 2023 2024 [--inject fc_wind_mean+15 --since 2024-03-01] [--name incident]
-  uv run python -m pga.monitor check          # journal de l'API + scores réels
+  uv run python -m pga.monitor check          # journal de l'API + scores réels (+ Pushgateway si PUSHGATEWAY_URL)
   uv run python -m pga.monitor calibrate      # distribution des signaux sur 2022 (justification des seuils)
   uv run python -m pga.monitor backfill-tags  # pose valid_event_bias_sd sur les versions anciennes
 Code de sortie : 0 ok, 1 warning, 2 alert.
@@ -31,6 +31,7 @@ import pandas as pd
 import yaml
 from dotenv import load_dotenv
 from mlflow.tracking import MlflowClient
+from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
 
 from pga.alerting import notify
 from pga.config import FEATURES_PATH, MLFLOW_URI, PREDICTIONS_LOG, REPORTS, ROOT, ROUNDS, params
@@ -477,6 +478,43 @@ def notify_alert(latest: dict) -> None:
                f"dernier tournoi {latest['last_event']['event_name']}\n" + "\n".join(latest["reasons"]))
 
 
+PUSH_JOB = "pga_monitor"
+
+
+def push_metrics(latest: dict, url: str | None = None) -> bool:
+    """Pousse le dernier contrôle vers la Pushgateway (`PUSHGATEWAY_URL`), lue par Prometheus/Grafana.
+
+    Sans la variable, rien n'est envoyé. Un signal non évalué (None) n'est pas poussé : le push
+    remplace tout le groupe `job=pga_monitor`, donc aucune valeur périmée ne reste affichée.
+    Une Pushgateway injoignable n'interrompt jamais le contrôle (le statut reste dans latest.json).
+    """
+    url = url or os.environ.get("PUSHGATEWAY_URL")
+    if not url:
+        return False
+    reg = CollectorRegistry()
+    s = latest["signals"]
+    Gauge("pga_drift_status", "Statut du dernier contrôle (0 ok, 1 warning, 2 alert)", registry=reg).set(LEVELS[latest["status"]])
+    Gauge("pga_monitor_model_version", "Version du champion contrôlé", registry=reg).set(int(latest["model"]["version"]))
+    for key, doc in (("bias", "Biais moyen de la fenêtre (coups)"), ("bias_z", "z-score du biais de la fenêtre"),
+                     ("mae_ratio", "MAE de la fenêtre / MAE de validation du champion")):
+        if s.get(key) is not None:
+            Gauge(f"pga_{key}", doc, registry=reg).set(s[key])
+    if s.get("psi_max") is not None:
+        g = Gauge("pga_psi_max", "PSI de la feature la plus proche de son seuil d'alerte", ["feature"], registry=reg)
+        g.labels(str(latest.get("psi_max_feature"))).set(s["psi_max"])
+    if s.get("cusum_up") is not None or s.get("cusum_down") is not None:
+        g = Gauge("pga_cusum", "CUSUM du biais par tournoi", ["direction"], registry=reg)
+        for d in ("up", "down"):
+            if s.get(f"cusum_{d}") is not None:
+                g.labels(d).set(s[f"cusum_{d}"])
+    try:
+        push_to_gateway(url, job=PUSH_JOB, registry=reg, timeout=10)
+    except Exception as exc:  # noqa: BLE001 — URLError, HTTPError, socket…
+        print(f"  ! métriques non poussées vers la Pushgateway : {type(exc).__name__}", file=sys.stderr)
+        return False
+    return True
+
+
 def cmd_check(args, p: dict, name: str) -> int:
     champ = champion_info(MlflowClient(), name, p["fallback_event_bias_sd"])
     _, ref = load_reference(p, champ)
@@ -488,6 +526,7 @@ def cmd_check(args, p: dict, name: str) -> int:
                                             "log_rows": len(log), "log_rows_with_score": labelled})
     report(latest)
     notify_alert(latest)
+    push_metrics(latest)
     return LEVELS[latest["status"]]
 
 
