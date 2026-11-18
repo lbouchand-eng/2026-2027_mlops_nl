@@ -1,4 +1,4 @@
-"""Chemins et paramètres partagés par les étapes du pipeline."""
+"""Paths and parameters shared by the pipeline stages."""
 from pathlib import Path
 
 import yaml
@@ -28,7 +28,7 @@ def params() -> dict:
 REPORTS = ROOT / "reports"
 METRICS_PATH = REPORTS / "metrics.json"
 MLARTIFACTS = ROOT / "mlartifacts"
-# Surchargeable par la variable d'environnement MLFLOW_TRACKING_URI (.env).
+# Overridable by the MLFLOW_TRACKING_URI environment variable (.env).
 MLFLOW_URI = f"sqlite:///{ROOT / 'mlflow.db'}"
-# Journal des prédictions de l'API (entrée du monitoring), surchargeable par PREDICTIONS_LOG.
+# API prediction journal (monitoring input), overridable by PREDICTIONS_LOG.
 PREDICTIONS_LOG = DATA / "monitoring" / "predictions.parquet"

@@ -1,111 +1,111 @@
-# Runbook : alerte de monitoring, rollback, réentraînement
+# Runbook: monitoring alert, rollback, retraining
 
-## 1. Lire l'alerte
+## 1. Read the alert
 
 ```bash
-uv run python -m pga.monitor check           # ou : cat reports/monitoring/latest.json
+uv run python -m pga.monitor check           # or: cat reports/monitoring/latest.json
 ```
 
-`latest.json` donne le statut, les raisons (quel signal, quelle valeur, quel seuil), la
-version servie et le dernier tournoi contrôlé. Le détail par tournoi est dans MLflow,
-expérience `pga-monitoring`.
+`latest.json` gives the status, the reasons (which signal, which value, which threshold), the
+served version and the last tournament checked. Per-tournament details are in MLflow,
+experiment `pga-monitoring`.
 
-## 2. Choisir la réaction
+## 2. Choose the response
 
-| Situation | Signal typique | Réaction |
+| Situation | Typical signal | Response |
 |---|---|---|
-| Performance dégradée **juste après une promotion** | biais ou MAE en alerte, la version précédente allait bien | **Rollback** (§ 3) |
-| Alerte PSI **juste après une promotion** | les données d'entraînement du modèle servi diffèrent de la production | **Rollback** (§ 3), puis vérifier le backfill |
-| Données d'entrée corrompues (bug de flux, changement d'unité) | PSI en alerte sur une ou deux features, d'un coup, champion ancien | Corriger la source. **Pas de réentraînement** : on apprendrait le bug. Rollback seulement si la version précédente y est moins sensible. |
-| Dérive lente et confirmée du monde réel | warnings de biais répétés, PSI modéré | **Réentraînement** sur une fenêtre plus récente (§ 4) |
-| Nouvelle population (ex. Q-School) | alerte PSI sur la forme, isolée | Vérifier, documenter, pas d'action si la performance tient |
+| Performance degraded **right after a promotion** | bias or MAE in alert, the previous version was fine | **Rollback** (§ 3) |
+| PSI alert **right after a promotion** | the served model's training data differs from production | **Rollback** (§ 3), then check the backfill |
+| Corrupted input data (feed bug, unit change) | PSI in alert on one or two features, suddenly, old champion | Fix the source. **No retraining**: the model would learn the bug. Rollback only if the previous version is less sensitive to it. |
+| Slow, confirmed real-world drift | repeated bias warnings, moderate PSI | **Retraining** on a more recent window (§ 4) |
+| New population (e.g. Q-School) | isolated PSI alert on form | Check, document, no action if performance holds |
 
 ## 3. Rollback
 
 ```bash
-uv run python -m pga.rollback --reason "alerte biais du 2024-03-28" --api-url http://127.0.0.1:8000
+uv run python -m pga.rollback --reason "bias alert of 2024-03-28" --api-url http://127.0.0.1:8000
 ```
 
-- `champion` ← `previous`, et `previous` ← ancien champion. `--to VERSION` choisit une
-  autre version.
-- L'API recharge le modèle (`POST /reload`), puis la commande vérifie que `/health` sert
-  bien la nouvelle version. Si l'API ne suit pas, le code de sortie vaut 2 et la commande
-  de rechargement manuel est affichée.
-- Trace : tags `rolled_back_from`, `rolled_back_at`, `rollback_reason` sur la version
-  remise en service, et un run dans l'expérience MLflow `pga-operations`.
-- **Annuler un rollback** : relancer la même commande (l'échange est symétrique).
-- Refus explicite (code 1) si pas de `previous`, si la version cible n'existe pas ou si
-  elle est déjà le champion.
+- `champion` ← `previous`, and `previous` ← former champion. `--to VERSION` picks another
+  version.
+- The API reloads the model (`POST /reload`), then the command checks that `/health` does
+  serve the new version. If the API does not follow, the exit code is 2 and the manual
+  reload command is printed.
+- Trace: `rolled_back_from`, `rolled_back_at`, `rollback_reason` tags on the version
+  put back into service, and a run in the MLflow experiment `pga-operations`.
+- **Undo a rollback**: rerun the same command (the swap is symmetric).
+- Explicit refusal (code 1) if there is no `previous`, if the target version does not exist or if
+  it is already the champion.
 
-Vérifications après un rollback :
-1. `curl -s localhost:8000/health` → `model_version` attendu.
-2. `uv run python -m pga.monitor check` → les seuils de performance sont ceux de la
-   nouvelle version (tags du champion).
-3. Compatibilité : l'API envoie toujours les colonnes de `pga.features.FEATURES`. MLflow
-   applique la signature de la version servie : les colonnes en trop sont ignorées (ex. v1,
-   entraînée avec 21 features, accepte les 23 actuelles), une colonne manquante fait
-   échouer la prédiction. Avant de supprimer une feature, vérifier les versions encore
-   susceptibles d'être remises en service.
+Checks after a rollback:
+1. `curl -s localhost:8000/health` → expected `model_version`.
+2. `uv run python -m pga.monitor check` → the performance thresholds are those of the
+   new version (champion's tags).
+3. Compatibility: the API still sends the `pga.features.FEATURES` columns. MLflow
+   enforces the served version's signature: extra columns are ignored (e.g. v1,
+   trained with 21 features, accepts the current 23), a missing column makes the
+   prediction fail. Before removing a feature, check which versions may still
+   be put back into service.
 
-Testé en local (4 novembre 2026) : v2 → v1 → v2, l'API a suivi à chaque fois.
+Tested locally (November 4, 2026): v2 → v1 → v2, the API followed every time.
 
-## 4. Réentraînement : le déclencheur
+## 4. Retraining: the trigger
 
 ```bash
-uv run python -m pga.trigger --dry-run          # décision seule
-uv run python -m pga.trigger                    # décide et agit
-uv run python -m pga.trigger --as-of 2024-02-05 # simulation à une date passée
+uv run python -m pga.trigger --dry-run          # decision only
+uv run python -m pga.trigger                    # decides and acts
+uv run python -m pga.trigger --as-of 2024-02-05 # simulation at a past date
 ```
 
-Le déclencheur recalcule le monitoring « as-of » sur les 3 derniers contrôles, puis :
+The trigger recomputes monitoring "as-of" over the last 3 checks, then:
 
-| Constat | Action | Code |
+| Finding | Action | Code |
 |---|---|---|
-| rien d'anormal | rien | 0 |
-| biais/MAE dégradés (alerte, ou 3 contrôles consécutifs hors seuil), champion en service depuis plus de 60 j | **réentraînement** | 10 |
-| alerte PSI sur une entrée, champion en service depuis plus de 60 j | **incident de données** : pas de réentraînement, vérifier la source | 20 |
-| biais/MAE dégradés ou alerte PSI, champion en service depuis moins de 60 j | **rollback** (le dernier déploiement est suspect) | 30 |
+| nothing abnormal | nothing | 0 |
+| bias/MAE degraded (alert, or 3 consecutive checks out of threshold), champion in service for more than 60 days | **retraining** | 10 |
+| PSI alert on an input, champion in service for more than 60 days | **data incident**: no retraining, check the source | 20 |
+| bias/MAE degraded or PSI alert, champion in service for less than 60 days | **rollback** (the latest deployment is suspect) | 30 |
 
-Comparaison juste : la fenêtre de décision est formée des 8 derniers tournois **terminés**
-à la date (dernier départ + 6 h) : un tournoi en cours apporterait les scores de tours pas
-encore joués.
-Le challenger est entraîné sur tout ce qui précède, et **champion et challenger sont
-évalués sur cette même fenêtre**. Promotion si la MAE est meilleure et le |biais| pas pire.
-La fenêtre est lue dans le journal de l'API s'il contient au moins une ligne notée pour chacun des
-8 tournois et `monitor.min_rows` lignes au total. Sinon la comparaison utilise la table de features,
-et le tag `decision_source=backfill` le signale.
-Trace : run `retrain as-of …` dans `pga-score`, décision dans `pga-operations`,
-`reports/trigger/latest.json` et une archive par décision exécutée.
+Fair comparison: the decision window is made of the last 8 tournaments **finished**
+at the date (last tee time + 6 h): an ongoing tournament would bring scores of rounds not
+yet played.
+The challenger is trained on everything before it, and **champion and challenger are
+evaluated on this same window**. Promotion if the MAE is better and the |bias| no worse.
+The window is read from the API journal if it contains at least one scored row for each of the
+8 tournaments and `monitor.min_rows` rows in total. Otherwise the comparison uses the feature table,
+and the `decision_source=backfill` tag flags it.
+Trace: run `retrain as-of …` in `pga-score`, decision in `pga-operations`,
+`reports/trigger/latest.json` and an archive per executed decision.
 
-Résultat réel (`reports/trigger/2024-02-05_retrain.json`) : le lundi 5 février 2024, après
-trois warnings de biais consécutifs (z = 2,0 à 2,2, le dernier sur l'AT&T Pebble Beach
-Pro-Am terminé le 3 février), le challenger (données antérieures au 9 novembre 2023, début de
-la fenêtre de décision) bat le champion sur les mêmes 8 tournois : MAE 2,326 contre 2,362,
-biais +0,48 contre +0,63. Il est promu et l'ancien champion passe en `previous`. Ensuite,
-aucune action jusqu'à fin 2024 : le biais moyen 2024 passe de +0,22 à +0,16 coup.
-Au 2 février, Pebble Beach est encore en cours : le déclencheur ne voit que deux warnings et
-ne fait rien (`test_event_in_progress_is_not_used`).
+Actual result (`reports/trigger/2024-02-05_retrain.json`): on Monday, February 5, 2024, after
+three consecutive bias warnings (z = 2.0 to 2.2, the last on the AT&T Pebble Beach
+Pro-Am finished on February 3), the challenger (data prior to November 9, 2023, start of
+the decision window) beats the champion on the same 8 tournaments: MAE 2.326 versus 2.362,
+bias +0.48 versus +0.63. It is promoted and the former champion becomes `previous`. Afterwards,
+no action until the end of 2024: the mean 2024 bias goes from +0.22 to +0.16 strokes.
+On February 2, Pebble Beach is still in progress: the trigger only sees two warnings and
+does nothing (`test_event_in_progress_is_not_used`).
 
-Garde-fou de promotion : si la médiane du vent sort de sa plage ou si le PSI entre les données
-du challenger et le profil du champion dépasse le seuil d'alerte, le challenger reste
-`candidate` (tag `blocked_reason`), même s'il gagne la comparaison.
+Promotion guardrail: if the wind median leaves its range or if the PSI between the
+challenger's data and the champion's profile exceeds the alert threshold, the challenger stays
+`candidate` (tag `blocked_reason`), even if it wins the comparison.
 
-Limite connue : une corruption de la **cible** ne change pas les features, donc ce garde-fou ne
-la voit pas. La comparaison sur le journal la refuse
-(`tests/test_trigger.py::test_journal_catches_what_the_backfill_hides`), mais sans journal le
-challenger peut gagner (`test_corrupted_backfill_fools_the_comparison`). Seul le monitoring en
-production le détecte alors ; la règle « dégradation peu après une mise en service → rollback »
-prend le relais.
+Known limitation: a corruption of the **target** does not change the features, so this guardrail does not
+see it. The comparison on the journal refuses it
+(`tests/test_trigger.py::test_journal_catches_what_the_backfill_hides`), but without a journal the
+challenger can win (`test_corrupted_backfill_fools_the_comparison`). Only production monitoring
+detects it then; the rule "degradation shortly after a deployment → rollback"
+takes over.
 
-## 5. Automatisation et alertes
+## 5. Automation and alerts
 
-| Mécanisme | Fréquence | Effet |
+| Mechanism | Frequency | Effect |
 |---|---|---|
-| Service Compose `scheduler` (`--profile ops`) | chaque semaine (`TRIGGER_INTERVAL_SECONDS`) | décide **et agit**, recharge l'API |
-| Workflow GitHub `trigger.yml` | lundi 6 h UTC, ou à la demande | décide sans agir |
+| Compose service `scheduler` (`--profile ops`) | every week (`TRIGGER_INTERVAL_SECONDS`) | decides **and acts**, reloads the API |
+| GitHub workflow `trigger.yml` | Monday 6:00 UTC, or on demand | decides without acting |
 
-`PGA_ALERT_WEBHOOK` reçoit les alertes de `monitor check`, les actions du déclencheur et ses échecs.
-Un webhook injoignable n'interrompt jamais une décision.
+`PGA_ALERT_WEBHOOK` receives the `monitor check` alerts, the trigger's actions and its failures.
+An unreachable webhook never interrupts a decision.
 
-Limite : le pipeline s'arrête à la saison 2024 (`data-v1`). En production, un `dvc repro` planifié
-devrait précéder le déclencheur pour lui fournir les tournois récents.
+Limitation: the pipeline stops at the 2024 season (`data-v1`). In production, a scheduled `dvc repro`
+should run before the trigger to feed it the recent tournaments.

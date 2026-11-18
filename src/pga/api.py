@@ -1,16 +1,16 @@
-"""Service de prédiction FastAPI (contrat : docs/architecture.md).
+"""FastAPI prediction service (contract: docs/architecture.md).
 
-- GET  /health  : état et version du modèle servi ;
-- POST /predict : prédiction de `to_par` pour une liste de joueur-tours ;
-- POST /reload  : relit l'alias `champion` du Registry (après rollback ou promotion) ;
-                  protégé par l'en-tête `X-API-Key` si `PGA_API_KEY` est défini ;
-- GET  /metrics : métriques Prometheus (requêtes, latence, lignes prédites, version servie).
+- GET  /health  : status and version of the served model;
+- POST /predict : `to_par` prediction for a list of player-rounds;
+- POST /reload  : re-reads the `champion` alias from the Registry (after rollback or promotion);
+                  protected by the `X-API-Key` header if `PGA_API_KEY` is set;
+- GET  /metrics : Prometheus metrics (requests, latency, predicted rows, served version).
 
-Le modèle est chargé **par numéro de version** (résolu depuis l'alias) : la version
-annoncée est toujours celle qui prédit. Chaque prédiction est ajoutée au journal
-`PREDICTIONS_LOG`, relu par le monitoring.
+The model is loaded **by version number** (resolved from the alias): the announced
+version is always the one that predicts. Every prediction is appended to the
+`PREDICTIONS_LOG` prediction journal, read back by monitoring.
 
-Lancement : uv run uvicorn pga.api:app --reload
+Run: uv run uvicorn pga.api:app --reload
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ from pga.features import FEATURES
 ALIAS = "champion"
 KEY_FIELDS = {"event_id": (str, ...), "player_id": (str, ...), "round": (int, Field(..., ge=1, le=4))}
 
-# Une ligne = clés + chaque feature (nombre ou null -> NaN). Colonne inconnue -> 422.
+# One row = keys + each feature (number or null -> NaN). Unknown column -> 422.
 Row = create_model(
     "Row",
     __config__=ConfigDict(extra="forbid"),
@@ -70,7 +70,7 @@ class Health(BaseModel):
 
 
 class ModelService:
-    """Modèle servi + son numéro de version ; rechargeable à chaud."""
+    """Served model + its version number; hot-reloadable."""
 
     def __init__(self, name: str):
         self.name = name
@@ -80,11 +80,11 @@ class ModelService:
         self._lock = threading.Lock()
 
     def load(self) -> bool:
-        """Charge la version pointée par l'alias. En cas d'échec, garde le modèle courant."""
+        """Loads the version the alias points to. On failure, keeps the current model."""
         try:
             mv = MlflowClient().get_model_version_by_alias(self.name, ALIAS)
             model = mlflow.pyfunc.load_model(f"models:/{self.name}/{mv.version}")
-        except Exception as exc:  # noqa: BLE001 — le service démarre même sans modèle
+        except Exception as exc:  # noqa: BLE001 — the service starts even without a model
             self.error = f"{type(exc).__name__}: {exc}"
             return False
         with self._lock:
@@ -104,19 +104,19 @@ class ModelService:
     def predict(self, X: pd.DataFrame) -> tuple[np.ndarray, str]:
         with self._lock:
             if self.model is None:
-                raise HTTPException(503, f"aucun modèle chargé : {self.error}")
+                raise HTTPException(503, f"no model loaded: {self.error}")
             return np.asarray(self.model.predict(X), dtype=float), self.version  # type: ignore[return-value]
 
 
 def to_frame(rows: list) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """(clés, features float dans l'ordre de FEATURES)."""
+    """(keys, float features in FEATURES order)."""
     df = pd.DataFrame([r.model_dump() for r in rows])
     X = df.reindex(columns=FEATURES).astype(float)
     return df[list(KEY_FIELDS)], X
 
 
 def append_log(path: Path, keys: pd.DataFrame, X: pd.DataFrame, pred: np.ndarray, version: str) -> None:
-    """Ajoute les prédictions au journal parquet (entrée du monitoring)."""
+    """Appends the predictions to the parquet prediction journal (monitoring input)."""
     entry = keys.assign(ts=pd.Timestamp.now(tz="UTC"), model_version=version, prediction=pred)
     entry = pd.concat([entry, X.drop(columns=[c for c in KEY_FIELDS if c in X])], axis=1)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -126,23 +126,23 @@ def append_log(path: Path, keys: pd.DataFrame, X: pd.DataFrame, pred: np.ndarray
 
 
 class Metrics:
-    """Registre propre à chaque application : `create_app` peut être appelé plusieurs fois."""
+    """Registry specific to each app: `create_app` can be called several times."""
 
     def __init__(self, service: ModelService):
         self.registry = CollectorRegistry()
-        self.requests = Counter("pga_http_requests", "Requêtes HTTP", ["path", "status"], registry=self.registry)
-        self.rows = Counter("pga_predicted_rows", "Lignes prédites", ["model_version"], registry=self.registry)
-        self.latency = Histogram("pga_predict_latency_seconds", "Durée de l'inférence", registry=self.registry)
-        self.reloads = Counter("pga_reloads", "Rechargements du modèle", ["result"], registry=self.registry)
-        served = Gauge("pga_served_model_version", "Version du modèle servi (0 : aucun)", registry=self.registry)
+        self.requests = Counter("pga_http_requests", "HTTP requests", ["path", "status"], registry=self.registry)
+        self.rows = Counter("pga_predicted_rows", "Predicted rows", ["model_version"], registry=self.registry)
+        self.latency = Histogram("pga_predict_latency_seconds", "Inference duration", registry=self.registry)
+        self.reloads = Counter("pga_reloads", "Model reloads", ["result"], registry=self.registry)
+        served = Gauge("pga_served_model_version", "Served model version (0: none)", registry=self.registry)
         served.set_function(lambda: int(service.version or 0))
 
 
 def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
-    """Sans `PGA_API_KEY`, pas de contrôle : la stack Compose n'écoute que sur la machine locale."""
+    """Without `PGA_API_KEY`, no check: the Compose stack only listens on the local machine."""
     expected = os.environ.get("PGA_API_KEY")
     if expected and not secrets.compare_digest((x_api_key or "").encode(), expected.encode()):
-        raise HTTPException(401, "clé d'API absente ou invalide (en-tête X-API-Key)")
+        raise HTTPException(401, "missing or invalid API key (X-API-Key header)")
 
 
 def create_app() -> FastAPI:
@@ -163,8 +163,8 @@ def create_app() -> FastAPI:
     @app.middleware("http")
     async def count_requests(request: Request, call_next):
         response = await call_next(request)
-        route = request.scope.get("route")  # chemin déclaré : une URL inconnue ne crée pas de série
-        metrics.requests.labels(route.path if route else "inconnu", str(response.status_code)).inc()
+        route = request.scope.get("route")  # declared path: an unknown URL doesn't create a series
+        metrics.requests.labels(route.path if route else "unknown", str(response.status_code)).inc()
         return response
 
     @app.get("/health", response_model=Health)
@@ -187,10 +187,10 @@ def create_app() -> FastAPI:
     @app.post("/reload", response_model=Health, dependencies=[Depends(require_api_key)])
     def reload():
         loaded = service.load()
-        metrics.reloads.labels("ok" if loaded else "erreur").inc()
+        metrics.reloads.labels("ok" if loaded else "error").inc()
         if not loaded:
-            # le modèle précédent (s'il existe) continue d'être servi
-            raise HTTPException(503, f"rechargement impossible : {service.error}")
+            # the previous model (if any) keeps being served
+            raise HTTPException(503, f"reload failed: {service.error}")
         return service.health()
 
     @app.get("/metrics")

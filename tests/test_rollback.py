@@ -1,4 +1,4 @@
-"""Tests du rollback : échange champion/previous, erreurs, trace, rechargement de l'API."""
+"""Rollback tests: champion/previous swap, errors, trace, API reload."""
 import mlflow
 import pytest
 from mlflow.tracking import MlflowClient
@@ -12,7 +12,7 @@ NAME = P["registered_model_name"]
 
 @pytest.fixture
 def registry(tmp_path, monkeypatch):
-    """Trois versions : v1 champion puis v3 promue (v1 -> previous), v2 simple candidate."""
+    """Three versions: v1 champion then v3 promoted (v1 -> previous), v2 plain candidate."""
     uri = f"sqlite:///{tmp_path / 'mlflow.db'}"
     monkeypatch.chdir(tmp_path)
     T.setup_mlflow(uri, tmp_path / "artifacts")
@@ -20,9 +20,9 @@ def registry(tmp_path, monkeypatch):
     path = tmp_path / "f.parquet"
     df.to_parquet(path)
     weak = P | {"model": P["model"] | {"max_iter": 1}}
-    v1 = T.run(df, weak, YEARS, path)["version"]          # 1er : champion
-    v2 = T.run(df, weak, YEARS, path)["version"]          # identique : non promu
-    v3 = T.run(df, P, YEARS, path)["version"]             # meilleur : champion, v1 -> previous
+    v1 = T.run(df, weak, YEARS, path)["version"]          # 1st: champion
+    v2 = T.run(df, weak, YEARS, path)["version"]          # identical: not promoted
+    v3 = T.run(df, P, YEARS, path)["version"]             # better: champion, v1 -> previous
     c = MlflowClient()
     yield c, v1, v2, v3
     mlflow.set_tracking_uri(None)
@@ -55,12 +55,12 @@ def test_rollback_to_explicit_version(registry):
     assert (alias(c, "champion"), alias(c, "previous")) == (v2, v3)
 
 
-@pytest.mark.parametrize("to, msg", [("999", "introuvable"), (None, "déjà")])
+@pytest.mark.parametrize("to, msg", [("999", "not found"), (None, "already")])
 def test_rollback_errors(registry, to, msg):
     c, _, _, v3 = registry
     with pytest.raises(R.RollbackError, match=msg):
         R.rollback(c, NAME, to=to or v3)
-    assert alias(c, "champion") == v3  # rien n'a bougé
+    assert alias(c, "champion") == v3  # nothing moved
 
 
 def test_rollback_without_previous(registry):
@@ -88,12 +88,12 @@ def test_main_logs_operation_and_reloads_api(registry, monkeypatch):
 
     monkeypatch.setattr(R.requests, "post", lambda url, headers, timeout: calls.append(url) or Resp({}))
     monkeypatch.setattr(R.requests, "get", lambda url, timeout: Resp({"model_version": v1}))
-    assert R.main(["--reason", "alerte", "--api-url", "http://api"]) == 0
+    assert R.main(["--reason", "alert", "--api-url", "http://api"]) == 0
     assert calls == ["http://api/reload"]
     runs = mlflow.search_runs(experiment_names=[R.EXPERIMENT])
     assert runs.iloc[0]["tags.to_version"] == v1 and runs.iloc[0]["tags.from_version"] == v3
 
-    # l'API ne suit pas : code 2, le registry reste basculé
+    # the API does not follow: code 2, the registry stays switched
     monkeypatch.setattr(R.requests, "get", lambda url, timeout: Resp({"model_version": "42"}))
     assert R.main(["--api-url", "http://api"]) == 2
     assert alias(c, "champion") == v3

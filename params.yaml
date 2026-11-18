@@ -1,13 +1,13 @@
 collect:
-  # Années civiles couvertes (date de début de tournoi). Les saisons ESPN chevauchent
-  # deux années (saison 2023 = sept. 2022 -> août 2023) : on interroge une saison de plus.
+  # Calendar years covered (tournament start date). ESPN seasons span
+  # two years (2023 season = Sept. 2022 -> Aug. 2023): we query one extra season.
   first_year: 2016
   last_year: 2024
-  request_interval_s: 1.0   # throttle entre deux requêtes réseau
+  request_interval_s: 1.0   # throttle between two network requests
   timeout_s: 30
 
 rounds:
-  # Événements exclus : formats non stroke-play individuel
+  # Excluded events: non-individual-stroke-play formats
   exclude_name_patterns:
     - "Presidents Cup"
     - "Ryder Cup"
@@ -19,8 +19,8 @@ rounds:
     - "Olympic"
 
 weather:
-  window_hours: 5           # durée de la fenêtre de jeu à partir du teeTime
-  wind_median_kmh: [6, 20]  # médiane acceptée (9,2 à 12,1 selon les années ; un backfill en m/s donne ≈ 3)
+  window_hours: 5           # playing window duration from teeTime
+  wind_median_kmh: [6, 20]  # accepted median (9.2 to 12.1 depending on the year; a backfill in m/s gives ≈ 3)
   hourly:
     - temperature_2m
     - relative_humidity_2m
@@ -30,14 +30,14 @@ weather:
     - wind_direction_10m
 
 features:
-  form_window_short: 10     # nb de tours pour la forme courte
-  form_window_long: 40      # nb de tours pour la forme longue
-  form_window_xlong: 150    # niveau de fond du joueur
-  form_ewm_halflife: 15     # demi-vie (en tours) de la moyenne exponentielle
+  form_window_short: 10     # nb of rounds for short form
+  form_window_long: 40      # nb of rounds for long form
+  form_window_xlong: 150    # player's underlying level
+  form_ewm_halflife: 15     # half-life (in rounds) of the exponential mean
   form_ewm_halflife_slow: 50
-  form_min_periods: 3       # tours minimum avant de calculer une moyenne glissante
+  form_min_periods: 3       # minimum rounds before computing a rolling mean
   form_min_periods_xlong: 10
-  course_shrink_k: 8        # pseudo-tours de rétrécissement de l'historique parcours vers 0
+  course_shrink_k: 8        # pseudo-rounds shrinking the course history towards 0
 
 split:
   history: [2016, 2017]
@@ -45,10 +45,10 @@ split:
   drift: [2023, 2024]
 
 train:
-  train_years: [2018, 2021]   # fit pour la validation (2018 = 1re année avec météo prévue complète)
-  valid_years: [2022, 2022]   # décision de promotion
-  refit_years: [2018, 2022]   # modèle enregistré : toute la période de référence
-  eval_years: [2023, 2024]    # période de drift : informatif, jamais utilisé pour décider
+  train_years: [2018, 2021]   # fit for validation (2018 = 1st year with a complete weather forecast)
+  valid_years: [2022, 2022]   # promotion decision
+  refit_years: [2018, 2022]   # registered model: the whole reference period
+  eval_years: [2023, 2024]    # drift period: informational, never used for decisions
   random_state: 42
   registered_model_name: pga-score-model
   model:
@@ -59,33 +59,33 @@ train:
     l2_regularization: 1.0
 
 monitor:
-  reference_years: [2018, 2022]   # repli si le modèle servi n'a pas de reference_profile.json
-  window_events: 8                # fenêtre glissante (≈ 2 mois de saison)
-  min_rows: 500                   # en dessous : signaux non évalués (journal court, scores absents)
+  reference_years: [2018, 2022]   # fallback if the served model has no reference_profile.json
+  window_events: 8                # rolling window (≈ 2 months of season)
+  min_rows: 500                   # below: signals not evaluated (short prediction journal, missing scores)
   psi_bins: 10
-  psi_warning: 0.10               # planchers ; seuils effectifs par feature dans
-  psi_alert: 0.25                 # reports/monitoring/calibration.json (commande calibrate)
-  calibration_quantile: 0.99      # warning = quantile 99 % du PSI naturel (fenêtres 2018-2022)
-  calibration_alert_margin: 1.5   # alert = 1,5 x PSI naturel max
-  # Features surveillées par PSI : niveau joueur et météo. Exclues : compteurs cumulés
-  # (n_rounds_hist, course_n_rounds) qui dérivent mécaniquement, et features constantes
-  # par tournoi (parcours, contexte) dont le PSI sur 8 tournois n'a pas de sens.
+  psi_warning: 0.10               # floors; effective per-feature thresholds in
+  psi_alert: 0.25                 # reports/monitoring/calibration.json (calibrate command)
+  calibration_quantile: 0.99      # warning = 99% quantile of natural PSI (2018-2022 windows)
+  calibration_alert_margin: 1.5   # alert = 1.5 x max natural PSI
+  # Features monitored by PSI: player level and weather. Excluded: cumulative counters
+  # (n_rounds_hist, course_n_rounds) that drift mechanically, and features constant
+  # per tournament (course, context) whose PSI over 8 tournaments is meaningless.
   psi_features: [form_rel_short, form_rel_long, form_rel_xlong, form_ewm, form_ewm_slow,
                  days_since_last, course_rel_mean, fc_temp_mean, fc_humidity_mean,
                  fc_precip_sum, fc_wind_mean, fc_gust_max]
   bias_z_warning: 2.0
   bias_z_alert: 3.0
-  mae_ratio_alert: 1.10           # ≈ 3 erreurs-types de la MAE sur 8 tournois
-  fallback_event_bias_sd: 0.85    # si la version servie n'a pas le tag valid_event_bias_sd
-  # CUSUM bilatéral du biais par tournoi (z = biais / σ_tournoi), cumulé sur tout l'historique :
-  # détecte un petit biais persistant que la fenêtre de 8 tournois dilue. k = 0,5 vise un
-  # décalage de 1 σ_tournoi ; seuils vérifiés hors échantillon 2019-2022 (docs/monitoring.md).
+  mae_ratio_alert: 1.10           # ≈ 3 standard errors of the MAE over 8 tournaments
+  fallback_event_bias_sd: 0.85    # if the served version lacks the valid_event_bias_sd tag
+  # Two-sided CUSUM of the per-tournament bias (z = bias / σ_tournament), accumulated over the full history:
+  # detects a small persistent bias that the 8-tournament window dilutes. k = 0.5 targets a
+  # 1 σ_tournament shift; thresholds checked out of sample on 2019-2022 (docs/monitoring.md).
   cusum_k: 0.5
   cusum_h_warning: 3.0
   cusum_h_alert: 4.0
 
 trigger:
-  consecutive_checks: 3           # contrôles de performance consécutifs hors seuil -> dégradation confirmée
-  recent_promotion_days: 60       # champion mis en service depuis moins de 60 j : dégradation -> rollback
-  train_start_year: 2018          # début des données du challenger
-  bias_tolerance: 0.0             # |biais| challenger <= |biais| champion + tolérance
+  consecutive_checks: 3           # consecutive performance checks over threshold -> confirmed degradation
+  recent_promotion_days: 60       # champion deployed less than 60 days ago: degradation -> rollback
+  train_start_year: 2018          # start of the challenger's data
+  bias_tolerance: 0.0             # |bias| challenger <= |bias| champion + tolerance

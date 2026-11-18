@@ -1,8 +1,8 @@
-"""Profil de référence d'un modèle : la distribution des données sur lesquelles il a appris.
+"""A model's reference profile: the distribution of the data it learned from.
 
-Enregistré avec chaque run (`reference_profile.json`) et relu par le monitoring : le PSI
-compare ainsi la production à ce que le modèle servi a réellement vu. Après un rollback,
-la référence suit le champion.
+Saved with each run (`reference_profile.json`) and read back by monitoring: the PSI
+thus compares production with what the served model actually saw. After a rollback,
+the reference follows the champion.
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ PROFILE_ARTIFACT = "reference_profile.json"
 
 
 def make_edges(ref, bins: int = 10) -> np.ndarray:
-    """Points de coupure internes = quantiles de la référence (bornes extrêmes ouvertes)."""
+    """Inner cut points = reference quantiles (outer bounds open)."""
     ref = np.asarray(ref, dtype=float)
     ref = ref[~np.isnan(ref)]
     if len(ref) == 0:
@@ -22,7 +22,7 @@ def make_edges(ref, bins: int = 10) -> np.ndarray:
 
 
 def shares(x, edges) -> np.ndarray:
-    """Part des valeurs dans chaque intervalle (NaN ignorés, planchers pour le log du PSI)."""
+    """Share of values in each bin (NaN ignored, floored for the PSI log)."""
     x = np.asarray(x, dtype=float)
     x = x[~np.isnan(x)]
     counts = np.bincount(np.searchsorted(edges, x, side="right"), minlength=len(edges) + 1)
@@ -30,7 +30,7 @@ def shares(x, edges) -> np.ndarray:
 
 
 def build_profile(frame: pd.DataFrame, features: list[str], bins: int) -> dict:
-    """Bornes et parts par feature ; `shares` vaut None pour une feature entièrement manquante."""
+    """Edges and shares per feature; `shares` is None for an entirely missing feature."""
     out = {}
     for f in features:
         values = frame[f].astype(float).to_numpy()

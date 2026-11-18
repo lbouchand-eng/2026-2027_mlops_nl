@@ -1,40 +1,40 @@
-# Architecture, répartition et contrat API ↔ monitoring
+# Architecture, division of work and API ↔ monitoring contract
 
-## Vue d'ensemble
+## Overview
 
 ```
  ESPN / Open-Meteo / OSM
           │  dvc repro (calendar → leaderboards → rounds → courses → weather)
           ▼
- data/processed/features.parquet ──────────────┐   (DVC, Release data-v1 du dépôt)
+ data/processed/features.parquet ──────────────┐   (DVC, repo Release data-v1)
           │  pga.train                          │
-          ▼                                     │ référence 2018-2022
+          ▼                                     │ reference 2018-2022
  MLflow (runs + Model Registry)                 │
    pga-score-model @champion / @previous        │
           │  mlflow.pyfunc.load_model           │
           ▼                                     ▼
  API FastAPI (pga.api) ──► data/monitoring/predictions.parquet ──► pga.monitor
-   /health /predict /reload                                        (PSI + MAE/biais)
-          ▲                                                              │ alerte
+   /health /predict /reload                                        (PSI + MAE/bias)
+          ▲                                                              │ alert
           │ /reload                                                      ▼
-          └──────────── pga.rollback (champion ← previous)  ou  réentraînement (pga.train)
+          └──────────── pga.rollback (champion ← previous)  or  retraining (pga.train)
 ```
 
-## Répartition
+## Division of work
 
-| Bloc | Responsable | Fichiers |
+| Block | Owner | Files |
 |---|---|---|
-| API FastAPI, tests d'intégration, journal des prédictions | **Nicolas** | `src/pga/api.py`, `tests/test_api.py` |
-| Monitoring du drift | **Léo** | `src/pga/monitor.py`, `tests/test_monitor.py` |
-| Rollback et runbook | **Léo** | `src/pga/rollback.py`, `docs/runbook.md` |
-| Déclencheur de réentraînement, incident simulé, test « clone neuf », slides | **ensemble** | `src/pga/trigger.py`, `docs/incident.md` |
+| FastAPI API, integration tests, prediction journal | **Nicolas** | `src/pga/api.py`, `tests/test_api.py` |
+| Drift monitoring | **Léo** | `src/pga/monitor.py`, `tests/test_monitor.py` |
+| Rollback and runbook | **Léo** | `src/pga/rollback.py`, `docs/runbook.md` |
+| Retraining trigger, simulated incident, "fresh clone" test, slides | **together** | `src/pga/trigger.py`, `docs/incident.md` |
 
-## Contrat API
+## API contract
 
-**Modèle servi** : `mlflow.pyfunc.load_model("models:/pga-score-model@champion")`.
-Tracking URI : variable `MLFLOW_TRACKING_URI` (`.env`), sinon `pga.config.MLFLOW_URI`.
-Les colonnes d'entrée sont exactement `pga.features.FEATURES` (schéma unique, ne pas
-recopier la liste).
+**Served model**: `mlflow.pyfunc.load_model("models:/pga-score-model@champion")`.
+Tracking URI: `MLFLOW_TRACKING_URI` variable (`.env`), otherwise `pga.config.MLFLOW_URI`.
+The input columns are exactly `pga.features.FEATURES` (single schema, do not
+copy the list).
 
 ### `GET /health`
 
@@ -44,16 +44,16 @@ recopier la liste).
 
 ### `POST /predict`
 
-Entrée : une liste de joueur-tours. `event_id`, `player_id`, `round` sont obligatoires ;
-chaque feature de `FEATURES` est un nombre ou `null` (→ NaN, géré par le modèle). Colonne
-inconnue ou type invalide → **422**.
+Input: a list of player-rounds. `event_id`, `player_id`, `round` are required;
+each feature of `FEATURES` is a number or `null` (→ NaN, handled by the model). Unknown
+column or invalid type → **422**.
 
 ```json
 {"rows": [{"event_id": "401580344", "player_id": "9478", "round": 1,
            "form_ewm": -0.8, "course_diff_mean": 0.4, "fc_wind_mean": 14.2, "...": null}]}
 ```
 
-Sortie :
+Output:
 
 ```json
 {"model_version": "2",
@@ -62,37 +62,37 @@ Sortie :
 
 ### `POST /reload`
 
-Relit l'alias `champion` dans le Registry et renvoie la même réponse que `/health`.
-Appelé après un rollback ou une promotion, sans redémarrer le service.
-Si `PGA_API_KEY` est défini, l'en-tête `X-API-Key` est obligatoire (401 sinon).
+Re-reads the `champion` alias in the Registry and returns the same response as `/health`.
+Called after a rollback or a promotion, without restarting the service.
+If `PGA_API_KEY` is set, the `X-API-Key` header is required (401 otherwise).
 
 ### `GET /metrics`
 
-Format Prometheus : `pga_http_requests_total{path,status}`, `pga_predict_latency_seconds`,
+Prometheus format: `pga_http_requests_total{path,status}`, `pga_predict_latency_seconds`,
 `pga_predicted_rows_total{model_version}`, `pga_reloads_total{result}`, `pga_served_model_version`.
-Scrapé toutes les 5 s par Prometheus (profil Compose `observability`) ; `pga.monitor check` y
-ajoute ses signaux de drift via la Pushgateway (`docs/monitoring.md`, « Tableau de bord »).
+Scraped every 5 s by Prometheus (Compose profile `observability`); `pga.monitor check`
+adds its drift signals through the Pushgateway (`docs/monitoring.md`, "Dashboard").
 
-## Journal des prédictions (entrée du monitoring)
+## Prediction journal (monitoring input)
 
-Chaque appel à `/predict` ajoute ses lignes à `data/monitoring/predictions.parquet`
-(chemin `pga.config.PREDICTIONS_LOG`, ignoré par git) :
+Each call to `/predict` appends its rows to `data/monitoring/predictions.parquet`
+(path `pga.config.PREDICTIONS_LOG`, ignored by git):
 
-| Colonne | Type |
+| Column | Type |
 |---|---|
-| `ts` | horodatage UTC de la prédiction |
-| `event_id`, `player_id`, `round` | clés joueur-tour |
-| `model_version` | version du Registry qui a prédit |
-| `prediction` | `to_par` prédit |
-| colonnes de `FEATURES` | valeurs reçues |
+| `ts` | UTC timestamp of the prediction |
+| `event_id`, `player_id`, `round` | player-round keys |
+| `model_version` | Registry version that predicted |
+| `prediction` | predicted `to_par` |
+| `FEATURES` columns | received values |
 
-`pga.monitor` relit ce fichier, le joint aux scores réels une fois les tours joués
-(`rounds.parquet`) et calcule le drift des données (PSI par feature) et de performance
-(MAE, biais, skill).
+`pga.monitor` reads this file back, joins it to the actual scores once the rounds are played
+(`rounds.parquet`) and computes data drift (PSI per feature) and performance drift
+(MAE, bias, skill).
 
-## Règles de travail
+## Working rules
 
-- Une branche et une PR par bloc, relue et approuvée par l'autre avant le merge.
-- `uv run pytest` vert avant toute PR.
-- Secrets uniquement dans `.env` (jamais dans git) ; données uniquement sous DVC.
-- Chaque nouvelle commande est documentée dans le README.
+- One branch and one PR per block, reviewed and approved by the other before merging.
+- `uv run pytest` green before any PR.
+- Secrets only in `.env` (never in git); data only under DVC.
+- Every new command is documented in the README.

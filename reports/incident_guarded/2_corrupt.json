@@ -2,7 +2,7 @@
   "date": "2024-03-01",
   "challenger": "4",
   "promoted": true,
-  "reason": "challenger MAE 2.261 / biais +0.045 vs champion v1 MAE 2.316 / biais -0.285 sur 8 tournois",
+  "reason": "challenger MAE 2.261 / bias +0.045 vs champion v1 MAE 2.316 / bias -0.285 on 8 tournaments",
   "challenger_metrics": {
     "mae": 2.261295321837477,
     "rmse": 2.865180656451864,
@@ -27,5 +27,5 @@
     "mae_r3": 2.5577785017026993,
     "mae_r4": 2.2679040402589807
   },
-  "data_transform": "backfill vent en m/s (÷3,6) sur tout l'historique"
+  "data_transform": "backfill wind in m/s (÷3.6) over the full history"
 }

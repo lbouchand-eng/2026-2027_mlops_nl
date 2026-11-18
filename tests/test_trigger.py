@@ -1,4 +1,4 @@
-"""Tests du déclencheur : table de décision, réentraînement sans fuite, promotion, rollback."""
+"""Trigger tests: decision table, leak-free retraining, promotion, rollback."""
 import mlflow
 import pandas as pd
 import pytest
@@ -19,20 +19,20 @@ def timeline(zs: list[float], reasons: str = "", mae_ratio: float = 1.0) -> pd.D
                          "mae_ratio": mae_ratio, "reasons": reasons})
 
 
-# --- table de décision -------------------------------------------------------------------------
+# --- decision table -------------------------------------------------------------------------
 
 @pytest.mark.parametrize(
     "zs, reasons, promoted_days_ago, expected",
     [
-        ([0.5, 1.0, 1.5], "", None, "none"),                       # tout va bien
-        ([2.5, 1.0, 2.5], "", None, "none"),                       # warnings non consécutifs
-        ([2.5, 2.2, 2.4], "", None, "retrain"),                    # 3 warnings consécutifs
-        ([0.5, 0.5, 3.5], "", None, "retrain"),                    # alerte au dernier contrôle
-        ([0.5, 0.5, 3.5], "", 20, "rollback"),                     # ... juste après une mise en service
-        ([0.5, 0.5, 3.5], "", 400, "retrain"),                     # mise en service ancienne
+        ([0.5, 1.0, 1.5], "", None, "none"),                       # all good
+        ([2.5, 1.0, 2.5], "", None, "none"),                       # non-consecutive warnings
+        ([2.5, 2.2, 2.4], "", None, "retrain"),                    # 3 consecutive warnings
+        ([0.5, 0.5, 3.5], "", None, "retrain"),                    # alert on the last check
+        ([0.5, 0.5, 3.5], "", 20, "rollback"),                     # ... right after a deployment
+        ([0.5, 0.5, 3.5], "", 400, "retrain"),                     # old deployment
         ([0.5, 0.5, 0.5], "[alert] PSI fc_wind_mean = 7 > 1.5", None, "data_incident"),
-        ([3.5, 3.5, 3.5], "[alert] PSI fc_wind_mean = 7 > 1.5", 400, "data_incident"),  # jamais de retrain sur données fausses
-        ([0.5, 0.5, 0.5], "[alert] PSI fc_wind_mean = 7 > 1.5", 20, "rollback"),  # le dernier déploiement est suspect
+        ([3.5, 3.5, 3.5], "[alert] PSI fc_wind_mean = 7 > 1.5", 400, "data_incident"),  # never retrain on wrong data
+        ([0.5, 0.5, 0.5], "[alert] PSI fc_wind_mean = 7 > 1.5", 20, "rollback"),  # the last deployment is suspect
     ],
 )
 def test_decision_table(zs, reasons, promoted_days_ago, expected):
@@ -51,7 +51,7 @@ def test_promotion_in_the_future_is_not_recent():
     assert TR.decide(timeline([0.5, 0.5, 3.5]), AS_OF, future, "1", MP, PT).action == "retrain"
 
 
-# --- réentraînement ------------------------------------------------------------------------------
+# --- retraining ------------------------------------------------------------------------------
 
 @pytest.fixture
 def setup(tmp_path, monkeypatch):
@@ -62,7 +62,7 @@ def setup(tmp_path, monkeypatch):
     df = make_events(make_features())
     path = tmp_path / "features.parquet"
     df.to_parquet(path)
-    T.run(df, P | {"model": P["model"] | {"max_iter": 3}}, YEARS, path)  # champion volontairement faible
+    T.run(df, P | {"model": P["model"] | {"max_iter": 3}}, YEARS, path)  # deliberately weak champion
     champ = M.champion_info(MlflowClient(), P["registered_model_name"], 0.85)
     yield {"df": df, "path": path, "champ": champ}
     mlflow.set_tracking_uri(None)
@@ -82,12 +82,12 @@ def test_decision_window_is_excluded_from_training(setup):
 
 
 def test_event_in_progress_is_not_used(setup):
-    """Un tournoi commencé avant `as_of` mais pas terminé n'entre ni dans le monitoring ni
-    dans la fenêtre de décision : ses derniers tours ne sont pas encore joués."""
+    """A tournament started before `as_of` but not finished enters neither the monitoring nor
+    the decision window: its last rounds have not been played yet."""
     df = setup["df"]
     starts = df.groupby("event_id")["event_start"].min()
     in_progress, start = starts.idxmax(), starts.max()
-    as_of = start + pd.Timedelta(days=1)  # lendemain du 1er tour
+    as_of = start + pd.Timedelta(days=1)  # day after the 1st round
     assert in_progress not in TR.event_order(df, as_of).index
     ids, _ = TR.decision_window(df, as_of, MP["window_events"])
     assert in_progress not in ids
@@ -98,14 +98,14 @@ def test_event_end_uses_last_tee_time():
     df = pd.DataFrame({"event_id": ["E", "E"], "event_start": pd.Timestamp("2024-02-01", tz="UTC"),
                        "tee_time_utc": pd.to_datetime(["2024-02-01 17:00", "2024-02-03 19:00"], utc=True)})
     assert TR.event_end(df)["E"] == pd.Timestamp("2024-02-04 01:00", tz="UTC")
-    assert TR.event_order(df, pd.Timestamp("2024-02-02 23:59", tz="UTC")).empty  # cas Pebble Beach 2024
+    assert TR.event_order(df, pd.Timestamp("2024-02-02 23:59", tz="UTC")).empty  # Pebble Beach 2024 case
     assert list(TR.event_order(df, pd.Timestamp("2024-02-05", tz="UTC")).index) == ["E"]
 
 
 def test_better_challenger_is_promoted_with_as_of_date(setup):
-    # tolérance large sur le biais : on teste ici la promotion sur la MAE
+    # wide bias tolerance: this tests promotion on MAE
     res = TR.retrain(setup["df"], AS_OF, setup["champ"], P, MP, PT | {"bias_tolerance": 5.0}, setup["path"])
-    assert res["challenger"]["mae"] < res["champion"]["mae"]  # champion faible (3 itérations)
+    assert res["challenger"]["mae"] < res["champion"]["mae"]  # weak champion (3 iterations)
     assert res["promoted"]
     c = MlflowClient()
     v = c.get_model_version_by_alias(P["registered_model_name"], "champion")
@@ -116,7 +116,7 @@ def test_better_challenger_is_promoted_with_as_of_date(setup):
 
 
 def test_worse_challenger_is_not_promoted(setup):
-    weak = P | {"model": P["model"] | {"max_iter": 1}}  # plus faible que le champion (3 itérations)
+    weak = P | {"model": P["model"] | {"max_iter": 1}}  # weaker than the champion (3 iterations)
     res = TR.retrain(setup["df"], AS_OF, setup["champ"], weak, MP, PT, setup["path"])
     assert not res["promoted"]
     champ = MlflowClient().get_model_version_by_alias(P["registered_model_name"], "champion")
@@ -124,8 +124,8 @@ def test_worse_challenger_is_not_promoted(setup):
 
 
 def test_corrupted_backfill_fools_the_comparison(setup):
-    """Limite sans journal (base de l'incident simulé) : si la fenêtre de décision est corrompue
-    comme les données d'entraînement, le challenger corrompu paraît meilleur et est promu."""
+    """Limitation without a prediction journal (basis of the simulated incident): if the decision window is
+    corrupted like the training data, the corrupted challenger looks better and is promoted."""
     def corrupt(d):
         d = d.copy()
         d["to_par"] = d["to_par"] + 5
@@ -146,9 +146,9 @@ def wind_in_ms(d):
 
 
 def test_wind_backfill_in_ms_is_blocked(setup):
-    """Le challenger paraît meilleur sur une fenêtre corrompue, mais ses données diffèrent du champion."""
+    """The challenger looks better on a corrupted window, but its data differs from the champion's."""
     res = TR.retrain(setup["df"], AS_OF, setup["champ"], P, MP, PT | {"bias_tolerance": 5.0}, setup["path"],
-                     transform=wind_in_ms, transform_label="vent en m/s")
+                     transform=wind_in_ms, transform_label="wind in m/s")
     assert not res["promoted"] and any("fc_wind_mean" in b for b in res["blocked"])
     c = MlflowClient()
     assert str(c.get_model_version_by_alias(P["registered_model_name"], "champion").version) == setup["champ"].version
@@ -157,7 +157,7 @@ def test_wind_backfill_in_ms_is_blocked(setup):
 
 def test_guards_off_replays_the_original_incident(setup):
     res = TR.retrain(setup["df"], AS_OF, setup["champ"], P, MP, PT | {"bias_tolerance": 5.0}, setup["path"],
-                     transform=wind_in_ms, transform_label="vent en m/s", guards=False)
+                     transform=wind_in_ms, transform_label="wind in m/s", guards=False)
     assert res["promoted"] and res["blocked"] == []
 
 
@@ -173,7 +173,7 @@ def window(df):
 
 
 def test_journal_catches_what_the_backfill_hides(setup):
-    """Même backfill que test_corrupted_backfill_fools_the_comparison, jugé sur ce que la production a vu."""
+    """Same backfill as test_corrupted_backfill_fools_the_comparison, judged on what production saw."""
     _, journal = window(setup["df"])
     res = TR.retrain(setup["df"], AS_OF, setup["champ"], P, MP | {"min_rows": 1}, PT | {"bias_tolerance": 5.0}, setup["path"],
                      transform=add_five_to_target, transform_label="to_par+5", journal=journal)
@@ -193,9 +193,9 @@ def test_journal_on_clean_data_changes_nothing(setup):
 def test_partial_journal_is_not_used(setup):
     ids, journal = window(setup["df"])
     assert TR.journal_window(journal, ids, 1) is not None
-    assert TR.journal_window(journal[journal.event_id != ids[0]], ids, 1) is None   # un tournoi manque
-    assert TR.journal_window(journal, ids, len(journal) + 1) is None                # trop peu de lignes
-    assert TR.journal_window(journal.assign(to_par=float("nan")), ids, 1) is None   # scores pas encore connus
+    assert TR.journal_window(journal[journal.event_id != ids[0]], ids, 1) is None   # a tournament is missing
+    assert TR.journal_window(journal, ids, len(journal) + 1) is None                # too few rows
+    assert TR.journal_window(journal.assign(to_par=float("nan")), ids, 1) is None   # scores not yet known
     assert TR.journal_window(None, ids, 1) is None
 
 

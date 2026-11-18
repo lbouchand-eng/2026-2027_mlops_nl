@@ -1,7 +1,7 @@
 [project]
 name = "pga-mlops"
 version = "0.1.0"
-description = "Prédiction du score vs par par joueur et par tour sur le PGA Tour (projet MLOps)"
+description = "Prediction of score vs par per player and per round on the PGA Tour (MLOps project)"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 authors = [
@@ -45,7 +45,7 @@ line-length = 140
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B"]   # pycodestyle, pyflakes, imports triés, bugbear
+select = ["E", "F", "I", "B"]   # pycodestyle, pyflakes, sorted imports, bugbear
 
 [tool.ruff.lint.isort]
 known-first-party = ["pga"]

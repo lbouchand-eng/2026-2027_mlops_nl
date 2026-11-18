@@ -2,9 +2,9 @@
   "date": "2024-03-01",
   "challenger": "2",
   "promoted": false,
-  "reason": "challenger MAE 2.261 / biais +0.045 vs champion v1 MAE 2.316 / biais -0.285 sur 8 tournois | promotion bloquée : médiane du vent 3.0 km/h hors de la plage [6, 20] ; PSI fc_gust_max = 6.05 > 3.26 ; PSI fc_wind_mean = 5.20 > 1.57",
+  "reason": "challenger MAE 2.261 / bias +0.045 vs champion v1 MAE 2.316 / bias -0.285 on 8 tournaments | promotion blocked: wind median 3.0 km/h outside the range [6, 20]; PSI fc_gust_max = 6.05 > 3.26; PSI fc_wind_mean = 5.20 > 1.57",
   "blocked": [
-    "médiane du vent 3.0 km/h hors de la plage [6, 20]",
+    "wind median 3.0 km/h outside the range [6, 20]",
     "PSI fc_gust_max = 6.05 > 3.26",
     "PSI fc_wind_mean = 5.20 > 1.57"
   ]

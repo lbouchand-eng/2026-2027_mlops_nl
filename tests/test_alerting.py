@@ -1,4 +1,4 @@
-"""Tests de la notification sortante : envoi, échec silencieux, messages du monitoring et du déclencheur."""
+"""Tests of the outgoing notification: sending, silent failure, monitoring and trigger messages."""
 import pytest
 import requests
 
@@ -32,13 +32,13 @@ def test_no_webhook_sends_nothing(post, monkeypatch):
 
 
 def test_notify_posts_the_text(post):
-    assert A.notify("bonjour") is True
-    assert post.calls == [(URL, {"text": "bonjour"})]
+    assert A.notify("hello") is True
+    assert post.calls == [(URL, {"text": "hello"})]
 
 
 def test_failure_does_not_raise_or_leak_the_url(monkeypatch, capsys):
     def boom(url, json, timeout):
-        raise requests.ConnectionError(f"impossible de joindre {url}")
+        raise requests.ConnectionError(f"cannot reach {url}")
 
     monkeypatch.setattr(A.requests, "post", boom)
     monkeypatch.setenv("PGA_ALERT_WEBHOOK", URL)
@@ -48,15 +48,15 @@ def test_failure_does_not_raise_or_leak_the_url(monkeypatch, capsys):
 
 @pytest.mark.parametrize("status, expected", [("alert", 1), ("warning", 0), ("ok", 0)])
 def test_monitoring_notifies_alerts_only(post, status, expected):
-    M.notify_alert({"status": status, "reasons": ["[alert] biais"], "model": {"version": "3"},
+    M.notify_alert({"status": status, "reasons": ["[alert] bias"], "model": {"version": "3"},
                     "last_event": {"event_name": "Masters"}})
     assert len(post.calls) == expected
     if expected:
-        assert "v3" in post.calls[0][1]["text"] and "[alert] biais" in post.calls[0][1]["text"]
+        assert "v3" in post.calls[0][1]["text"] and "[alert] bias" in post.calls[0][1]["text"]
 
 
 def decision(action: str) -> TR.Decision:
-    return TR.Decision(action, "motif", "2024-03-11", "4", "alert", ["alert"])
+    return TR.Decision(action, "reason", "2024-03-11", "4", "alert", ["alert"])
 
 
 @pytest.mark.parametrize("action, sent", [("none", 0), ("retrain", 1), ("data_incident", 1), ("rollback", 1)])
@@ -66,4 +66,4 @@ def test_trigger_notifies_every_action_but_none(post, monkeypatch, tmp_path, act
     assert TR.main(["--dry-run"]) == TR.CODES[action]
     assert len(post.calls) == sent
     if sent:
-        assert action.upper() in post.calls[0][1]["text"] and "simulation" in post.calls[0][1]["text"]
+        assert action.upper() in post.calls[0][1]["text"] and "dry run" in post.calls[0][1]["text"]

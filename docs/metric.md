@@ -1,74 +1,74 @@
-# Choix de la métrique (fixé avant tout entraînement)
+# Choice of metric (set before any training)
 
-**Cible** : `to_par`, score d'un joueur sur un tour par rapport au par (en coups).
+**Target**: `to_par`, a player's score on a round relative to par (in strokes).
 
-## Métrique principale : MAE (erreur absolue moyenne, en coups)
+## Main metric: MAE (mean absolute error, in strokes)
 
 $$\text{MAE} = \frac{1}{n}\sum_i |\hat{y}_i - y_i|$$
 
-Pourquoi la MAE :
+Why the MAE:
 
-1. **Lisible par un métier non technique** : par exemple « le modèle se trompe en moyenne de 2,4 coups
-   par tour ». L'unité est celle de la cible.
-2. **Robuste aux tours catastrophes.** La distribution de `to_par` a une queue lourde à
-   droite (écart-type 3,3, maximum +22 : blessure, abandon non déclaré, météo extrême).
-   Ces tours sont imprévisibles par nature ; une RMSE les élèverait au carré et ferait
-   dépendre la métrique, donc le choix du modèle et les alertes, de quelques lignes.
-3. **Stable dans le temps**, donc utilisable comme **seuil d'alerte en production** :
-   une hausse de la MAE glissante sur les derniers tournois signale une dégradation réelle
-   plutôt que du bruit.
-4. Elle estime la médiane conditionnelle, ce qui convient à une cible asymétrique.
+1. **Readable by a non-technical audience**: for example "the model is off by 2.4 strokes per
+   round on average". The unit is the target's.
+2. **Robust to disaster rounds.** The distribution of `to_par` has a heavy right
+   tail (standard deviation 3.3, maximum +22: injury, undeclared withdrawal, extreme weather).
+   These rounds are unpredictable by nature; an RMSE would square them and make
+   the metric, and therefore the model choice and the alerts, depend on a few rows.
+3. **Stable over time**, hence usable as an **alert threshold in production**:
+   a rise in the rolling MAE over the last tournaments signals a real degradation
+   rather than noise.
+4. It estimates the conditional median, which suits an asymmetric target.
 
-## Référence : baseline naïve et score de skill
+## Reference: naive baseline and skill score
 
-Une MAE seule n'a pas de sens sans point de comparaison. La **baseline** prédit, pour chaque
-tour, la moyenne historique de `to_par` sur le parcours (éditions précédentes uniquement,
-0 si le parcours est nouveau). Elle ne connaît ni le joueur ni la météo.
+An MAE alone means nothing without a point of comparison. The **baseline** predicts, for each
+round, the historical mean of `to_par` on the course (previous editions only,
+0 if the course is new). It knows neither the player nor the weather.
 
-| Année | MAE baseline | MAE « prédire 0 » | RMSE baseline |
-|-------|--------------|-------------------|---------------|
-| 2021  | 2,527        | 2,626             | 3,224         |
-| 2022  | 2,564        | 2,666             | 3,247         |
-| 2023  | 2,518        | 2,642             | 3,204         |
-| 2024  | 2,508        | 2,717             | 3,182         |
+| Year | Baseline MAE | "Predict 0" MAE | Baseline RMSE |
+|------|--------------|-----------------|---------------|
+| 2021 | 2.527        | 2.626           | 3.224         |
+| 2022 | 2.564        | 2.666           | 3.247         |
+| 2023 | 2.518        | 2.642           | 3.204         |
+| 2024 | 2.508        | 2.717           | 3.182         |
 
-On rapporte le **skill** : `skill = 1 − MAE_modèle / MAE_baseline`.
+We report the **skill**: `skill = 1 − MAE_model / MAE_baseline`.
 
-**Règle de promotion** : un modèle n'est promu dans le MLflow Model Registry que si son
-skill sur la validation est strictement positif **et** meilleur que celui du modèle en
+**Promotion rule**: a model is promoted in the MLflow Model Registry only if its
+validation skill is strictly positive **and** better than that of the model in
 production.
 
-## Métriques secondaires (loggées, non décisionnelles)
+## Secondary metrics (logged, not used for decisions)
 
-- **RMSE** : pour voir l'effet des grosses erreurs.
-- **Biais moyen** (`mean(ŷ − y)`) : signal de drift de niveau. Le field joue de plus en plus
-  bas (moyenne −0,40 en 2022, −0,77 en 2024) ; un biais positif croissant indique que le
-  modèle est en retard sur ce décalage.
-- **MAE par tour (R1 à R4)** : après le cut, le field est plus homogène.
+- **RMSE**: to see the effect of large errors.
+- **Mean bias** (`mean(ŷ − y)`): level-drift signal. The field scores lower and
+  lower (mean −0.40 in 2022, −0.77 in 2024); a growing positive bias means the
+  model is lagging behind this shift.
+- **MAE per round (R1 to R4)**: after the cut, the field is more homogeneous.
 
-## Protocole d'évaluation (split temporel, jamais aléatoire)
+## Evaluation protocol (temporal split, never random)
 
-| Période   | Rôle |
+| Period    | Role |
 |-----------|------|
-| 2016-2017 | historique pour calculer les features (forme, parcours) ; pas d'entraînement |
-| 2018-2021 | entraînement |
-| 2022      | validation (choix des hyperparamètres, décision de promotion) |
-| 2018-2022 | période de référence : le modèle enregistré est réentraîné dessus |
-| 2023-2024 | période de drift : évaluation par tournoi, alimente le monitoring |
+| 2016-2017 | history to compute the features (form, course); no training |
+| 2018-2021 | training |
+| 2022      | validation (hyperparameter choice, promotion decision) |
+| 2018-2022 | reference period: the registered model is retrained on it |
+| 2023-2024 | drift period: per-tournament evaluation, feeds monitoring |
 
-### Révision du 2026-11-03
+### Revision of 2026-11-03
 
-Le protocole initial entraînait sur 2021 seulement (2016-2020 servant d'historique). Après
-expérience, la fenêtre d'entraînement est étendue à **2018-2021** : c'est le seul levier
-significatif trouvé (MAE validation 2,411 → 2,380, skill +6,0 % → +7,2 %), avec deux features de niveau de fond
-du joueur. 2018 est la première année où la météo prévue est disponible à 100 %.
+The initial protocol trained on 2021 only (2016-2020 serving as history). After
+experimenting, the training window is extended to **2018-2021**: it is the only
+significant lever found (validation MAE 2.411 → 2.380, skill +6.0% → +7.2%), along with two
+baseline-level player features. 2018 is the first year where the weather forecast is 100% available.
 
-**La métrique, la baseline, l'année de validation et la règle de promotion sont
-inchangées.** Le nouveau modèle a été soumis à la même règle que le précédent (voir le
-Registry : la v1 est conservée sous l'alias `previous`).
+**The metric, the baseline, the validation year and the promotion rule are
+unchanged.** The new model went through the same rule as the previous one (see the
+Registry: v1 is kept under the `previous` alias).
 
-Pistes testées sans gain (validation 2022, MAE) : météo propre à la vague de départ
-(2,415), force et taille du field (2,416), tour précédent du même tournoi (2,415),
-hyperparamètres (2,410 à 2,424), perte quadratique (2,424). Même la météo **observée**
-(information indisponible en production) ne gagne que 0,007 coup : le score d'un tour est
-dominé par un bruit irréductible.
+Leads tested without gain (validation 2022, MAE): weather specific to the tee-time wave
+(2.415), field strength and size (2.416), previous round of the same tournament (2.415),
+hyperparameters (2.410 to 2.424), squared loss (2.424). Even the **observed** weather
+(information unavailable in production) gains only 0.007 strokes: a round's score is
+dominated by irreducible noise.

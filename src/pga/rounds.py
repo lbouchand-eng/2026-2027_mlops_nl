@@ -1,14 +1,14 @@
-"""Étape 3 : leaderboards bruts -> table joueur-tour (data/processed/rounds.parquet).
+"""Stage 3: raw leaderboards -> player-round table (data/processed/rounds.parquet).
 
-Une ligne = (tournoi, joueur, tour). Cible : `to_par` (score du tour vs par).
+One row = (tournament, player, round). Target: `to_par` (round score vs par).
 
-Règles de nettoyage :
-- on ne garde que les tournois en stroke-play individuel (scoringSystem == "Medal") ;
-  match play, team events (Zurich, QBE…) et JSON au format texte brut sont exclus ;
-- les tours de playoff sont exclus ;
-- pour un joueur WD/DQ, le dernier tour enregistré est supposé incomplet et retiré ;
-- `to_par` vient de `displayValue` (calculé par ESPN sur le parcours réellement joué,
-  important pour les tournois multi-parcours), avec repli sur strokes - par de l'hôte.
+Cleaning rules:
+- only individual stroke-play tournaments are kept (scoringSystem == "Medal");
+  match play, team events (Zurich, QBE…) and plain-text JSON are excluded;
+- playoff rounds are excluded;
+- for a WD/DQ player, the last recorded round is assumed incomplete and dropped;
+- `to_par` comes from `displayValue` (computed by ESPN on the course actually played,
+  important for multi-course tournaments), falling back to strokes - host par.
 """
 from __future__ import annotations
 
@@ -43,23 +43,23 @@ def _scoring_system(ev: dict, comp: dict) -> str | None:
 
 
 def parse_leaderboard(lb: dict, exclude_patterns: tuple[str, ...] = ()) -> tuple[pd.DataFrame, str | None]:
-    """Renvoie (lignes joueur-tour, raison d'exclusion ou None)."""
+    """Returns (player-round rows, exclusion reason or None)."""
     events = lb.get("events") or []
     if not events:
-        return pd.DataFrame(), "pas d'événement"
+        return pd.DataFrame(), "no event"
     ev = events[0]
     name = ev.get("name") or ""
     if any(p.lower() in name.lower() for p in exclude_patterns):
-        return pd.DataFrame(), "exclu par nom"
+        return pd.DataFrame(), "excluded by name"
     comps = ev.get("competitions") or []
     comp = comps[0] if comps else None
     if not isinstance(comp, dict):
-        return pd.DataFrame(), "format non standard"
+        return pd.DataFrame(), "non-standard format"
     scoring = _scoring_system(ev, comp)
     if scoring != "Medal":
         return pd.DataFrame(), f"scoring={scoring}"
     if not comp.get("competitors"):
-        return pd.DataFrame(), "pas de joueurs"
+        return pd.DataFrame(), "no players"
 
     courses = ev.get("courses") or []
     host = next((c for c in courses if c.get("host")), courses[0] if courses else {})
@@ -127,11 +127,11 @@ def build(lb_dir: Path, events: pd.DataFrame, exclude_patterns: tuple[str, ...])
     for ev in events.itertuples():
         path = lb_dir / f"{ev.event_id}.json"
         if not path.exists():
-            skipped.append((ev.event_id, ev.event_name, "JSON manquant"))
+            skipped.append((ev.event_id, ev.event_name, "missing JSON"))
             continue
         df, reason = parse_leaderboard(json.loads(path.read_text()), exclude_patterns)
         if reason or df.empty:
-            skipped.append((ev.event_id, ev.event_name, reason or "aucun tour"))
+            skipped.append((ev.event_id, ev.event_name, reason or "no rounds"))
             continue
         frames.append(df)
     rounds = pd.concat(frames, ignore_index=True)
@@ -150,19 +150,19 @@ def main() -> None:
     ROUNDS.parent.mkdir(parents=True, exist_ok=True)
     rounds.to_parquet(ROUNDS, index=False)
 
-    print(f"{len(rounds):,} tours joueur -> {ROUNDS}")
-    print(f"{rounds.event_id.nunique()} tournois gardés, {len(skipped)} exclus :")
+    print(f"{len(rounds):,} player-rounds -> {ROUNDS}")
+    print(f"{rounds.event_id.nunique()} tournaments kept, {len(skipped)} excluded:")
     print(skipped.groupby("reason").size().to_string())
     summary = rounds.groupby("year").agg(
-        tournois=("event_id", "nunique"),
-        tours=("to_par", "size"),
-        joueurs=("player_id", "nunique"),
+        tournaments=("event_id", "nunique"),
+        rounds=("to_par", "size"),
+        players=("player_id", "nunique"),
         pct_tee_time=("tee_time_utc", lambda s: round(100 * s.notna().mean(), 1)),
-        to_par_moyen=("to_par", lambda s: round(s.mean(), 2)),
+        mean_to_par=("to_par", lambda s: round(s.mean(), 2)),
     )
     print(summary.to_string())
     bad = (rounds.to_par_source == "espn") & ~rounds.par_played.between(68, 73)
-    print(f"par déduit hors [68,73] : {bad.sum()} lignes")
+    print(f"inferred par outside [68,73]: {bad.sum()} rows")
 
 
 if __name__ == "__main__":

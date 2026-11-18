@@ -30,7 +30,7 @@
     "list": []
   },
   "links": [],
-  "description": "API de prédiction (scrape de api:8000/metrics) et signaux de drift (pga.monitor check).",
+  "description": "Prediction API (scrape of api:8000/metrics) and drift signals (pga.monitor check).",
   "panels": [
     {
       "id": 1,
@@ -48,8 +48,8 @@
     {
       "id": 2,
       "type": "stat",
-      "title": "Version servie",
-      "description": "Version du Registry chargée par l'API (alias champion, résolu au chargement). 0 : aucun modèle.",
+      "title": "Served version",
+      "description": "Registry version loaded by the API (champion alias, resolved at load time). 0: no model.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -113,8 +113,8 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "Statut du drift",
-      "description": "Dernier `pga.monitor check` (poussé vers la Pushgateway) : pire des signaux PSI, biais, MAE, CUSUM.",
+      "title": "Drift status",
+      "description": "Latest `pga.monitor check` (pushed to the Pushgateway): worst of the PSI, bias, MAE, CUSUM signals.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -180,7 +180,7 @@
               }
             ]
           },
-          "noValue": "pas encore de contrôle",
+          "noValue": "no check yet",
           "color": {
             "mode": "thresholds"
           }
@@ -207,8 +207,8 @@
     {
       "id": 4,
       "type": "stat",
-      "title": "Version contrôlée",
-      "description": "Champion évalué par le dernier contrôle.",
+      "title": "Checked version",
+      "description": "Champion evaluated by the latest check.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -272,8 +272,8 @@
     {
       "id": 5,
       "type": "stat",
-      "title": "Lignes prédites",
-      "description": "Joueur-tours prédits depuis le démarrage de l'API, toutes versions.",
+      "title": "Predicted rows",
+      "description": "Player-rounds predicted since API startup, all versions.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -337,8 +337,8 @@
     {
       "id": 6,
       "type": "stat",
-      "title": "Rechargements",
-      "description": "POST /reload (après rollback ou promotion), depuis le démarrage de l'API.",
+      "title": "Reloads",
+      "description": "POST /reload (after rollback or promotion), since API startup.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -402,8 +402,8 @@
     {
       "id": 7,
       "type": "stat",
-      "title": "Dernier contrôle il y a",
-      "description": "Âge du dernier push de `pga.monitor check`.",
+      "title": "Time since last check",
+      "description": "Age of the latest `pga.monitor check` push.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -468,8 +468,8 @@
     {
       "id": 8,
       "type": "timeseries",
-      "title": "Requêtes/s par route et statut",
-      "description": "Toutes les routes sauf /metrics (le scrape de Prometheus, toutes les 5 s).",
+      "title": "Requests/s by route and status",
+      "description": "All routes except /metrics (the Prometheus scrape, every 5 s).",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -544,8 +544,8 @@
     {
       "id": 9,
       "type": "timeseries",
-      "title": "Latence de l'inférence /predict",
-      "description": "Durée de model.predict par requête (histogramme pga_predict_latency_seconds).",
+      "title": "/predict inference latency",
+      "description": "model.predict duration per request (pga_predict_latency_seconds histogram).",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -631,8 +631,8 @@
     {
       "id": 10,
       "type": "timeseries",
-      "title": "Lignes prédites par version (cumul, empilé)",
-      "description": "Quelle version a réellement prédit : la part de la version corrompue cesse de croître après le rollback.",
+      "title": "Predicted rows by version (cumulative, stacked)",
+      "description": "Which version actually predicted: the corrupted version's share stops growing after the rollback.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -707,8 +707,8 @@
     {
       "id": 11,
       "type": "timeseries",
-      "title": "Version servie et version contrôlée",
-      "description": "Le rollback se lit comme une marche : le champion change, l'API recharge.",
+      "title": "Served version and checked version",
+      "description": "The rollback reads as a step: the champion changes, the API reloads.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -726,7 +726,7 @@
             "uid": "prometheus"
           },
           "expr": "max(pga_served_model_version{job=\"api\"})",
-          "legendFormat": "servie (API)",
+          "legendFormat": "served (API)",
           "refId": "A",
           "range": true,
           "instant": false
@@ -737,7 +737,7 @@
             "uid": "prometheus"
           },
           "expr": "max(pga_monitor_model_version{job=\"pga_monitor\"})",
-          "legendFormat": "contrôlée (monitoring)",
+          "legendFormat": "checked (monitoring)",
           "refId": "B",
           "range": true,
           "instant": false
@@ -795,7 +795,7 @@
     {
       "id": 12,
       "type": "row",
-      "title": "Drift (pga.monitor check, via la Pushgateway)",
+      "title": "Drift (pga.monitor check, via the Pushgateway)",
       "collapsed": false,
       "gridPos": {
         "x": 0,
@@ -808,7 +808,7 @@
     {
       "id": 13,
       "type": "timeseries",
-      "title": "Statut du drift",
+      "title": "Drift status",
       "description": "0 ok, 1 warning, 2 alert.",
       "datasource": {
         "type": "prometheus",
@@ -827,7 +827,7 @@
             "uid": "prometheus"
           },
           "expr": "max(pga_drift_status{job=\"pga_monitor\"})",
-          "legendFormat": "statut",
+          "legendFormat": "status",
           "refId": "A",
           "range": true,
           "instant": false
@@ -915,8 +915,8 @@
     {
       "id": 14,
       "type": "timeseries",
-      "title": "Biais de la fenêtre (coups)",
-      "description": "Prédiction − score réel, moyenné par tournoi sur les 8 derniers tournois. > 0 : le modèle surestime.",
+      "title": "Window bias (strokes)",
+      "description": "Prediction − actual score, averaged per tournament over the last 8 tournaments. > 0: the model overestimates.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -934,7 +934,7 @@
             "uid": "prometheus"
           },
           "expr": "pga_bias{job=\"pga_monitor\"}",
-          "legendFormat": "biais",
+          "legendFormat": "bias",
           "refId": "A",
           "range": true,
           "instant": false
@@ -991,8 +991,8 @@
     {
       "id": 15,
       "type": "timeseries",
-      "title": "z-score du biais",
-      "description": "Biais de la fenêtre / bruit attendu (σ_tournoi du champion). Warning > 2, alert > 3.",
+      "title": "Bias z-score",
+      "description": "Window bias / expected noise (champion's σ_tournament). Warning > 2, alert > 3.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -1075,8 +1075,8 @@
     {
       "id": 16,
       "type": "timeseries",
-      "title": "Ratio de MAE",
-      "description": "MAE de la fenêtre / MAE de validation du champion. Alert > 1,10.",
+      "title": "MAE ratio",
+      "description": "Window MAE / champion's validation MAE. Alert > 1.10.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -1094,7 +1094,7 @@
             "uid": "prometheus"
           },
           "expr": "pga_mae_ratio{job=\"pga_monitor\"}",
-          "legendFormat": "MAE / MAE validation",
+          "legendFormat": "MAE / validation MAE",
           "refId": "A",
           "range": true,
           "instant": false
@@ -1155,8 +1155,8 @@
     {
       "id": 17,
       "type": "timeseries",
-      "title": "CUSUM du biais",
-      "description": "Sommes cumulées du biais par tournoi (up : prédictions trop hautes). Warning > 3, alert > 4.",
+      "title": "Bias CUSUM",
+      "description": "Cumulative sums of the per-tournament bias (up: predictions too high). Warning > 3, alert > 4.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -1240,7 +1240,7 @@
       "id": 18,
       "type": "timeseries",
       "title": "PSI max",
-      "description": "PSI de la feature la plus proche de son seuil d'alerte (seuils calibrés par feature, docs/monitoring.md).",
+      "description": "PSI of the feature closest to its alert threshold (thresholds calibrated per feature, docs/monitoring.md).",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

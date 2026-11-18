@@ -1,6 +1,6 @@
-"""Étape 2 : téléchargement des leaderboards ESPN (JSON bruts, un fichier par tournoi).
+"""Stage 2: download ESPN leaderboards (raw JSON, one file per tournament).
 
-Idempotent : un tournoi dont le JSON est déjà sur disque n'est pas re-téléchargé.
+Idempotent: a tournament whose JSON is already on disk is not downloaded again.
 """
 from __future__ import annotations
 
@@ -29,15 +29,15 @@ def main() -> None:
                 timeout=p["timeout_s"],
                 interval=p["request_interval_s"],
             )
-        except Exception as exc:  # noqa: BLE001 - on note l'échec et on continue
+        except Exception as exc:  # noqa: BLE001 - record the failure and move on
             failed.append((ev.event_id, ev.event_name, str(exc)))
             print(f"  ! {ev.event_id} {ev.event_name}: {exc}", file=sys.stderr)
             continue
         if not cached:
             print(f"[{i}/{len(events)}] {ev.start:%Y-%m-%d} {ev.event_name}")
-    print(f"{len(events) - len(failed)}/{len(events)} leaderboards dans {RAW_LEADERBOARD}")
+    print(f"{len(events) - len(failed)}/{len(events)} leaderboards in {RAW_LEADERBOARD}")
     if failed:
-        sys.exit(f"{len(failed)} échec(s) : relancer le script pour réessayer.")
+        sys.exit(f"{len(failed)} failure(s): rerun the script to retry.")
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
-name: Déclencheur planifié
+name: Scheduled trigger
 
-# Chaque lundi matin, une fois les tournois du week-end terminés. Le registry du runner est
-# éphémère : ce job décide et alerte sans agir. Le service Compose `scheduler` exécute les décisions.
+# Every Monday morning, once the weekend's tournaments are over. The runner's registry is
+# ephemeral: this job decides and alerts without acting. The Compose `scheduler` service executes the decisions.
 on:
   schedule:
     - cron: "0 6 * * 1"
@@ -24,10 +24,10 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Dépendances
+      - name: Dependencies
         run: uv sync --locked
 
-      - name: Données versionnées (Release data-v1)
+      - name: Versioned data (Release data-v1)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -38,13 +38,13 @@ jobs:
       - name: Registry (champion + previous)
         run: bash scripts/demo_setup.sh
 
-      - name: Décision
+      - name: Decision
         run: |
           set +e
           uv run python -m pga.trigger --dry-run | tee decision.txt
           code=${PIPESTATUS[0]}
           set -e
-          { echo '### Décision du déclencheur'; echo '```'; cat decision.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          { echo '### Trigger decision'; echo '```'; cat decision.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           case $code in 0|10|20|30) ;; *) exit "$code" ;; esac
 
       - uses: actions/upload-artifact@v4

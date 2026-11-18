@@ -1,19 +1,19 @@
-"""Étape 7 : entraînement, suivi MLflow et enregistrement dans le Model Registry.
+"""Stage 7: training, MLflow tracking and registration in the Model Registry.
 
-Protocole (docs/metric.md) : fit sur `train_years`, évaluation sur `valid_years`
-(décision de promotion), puis refit sur `refit_years` (période de référence complète) avec
-les mêmes hyperparamètres : c'est ce modèle qui est enregistré. Les années de drift sont
-évaluées à titre informatif.
+Protocol (docs/metric.md): fit on `train_years`, evaluate on `valid_years`
+(promotion decision), then refit on `refit_years` (full reference period) with the
+same hyperparameters: that is the model that gets registered. Drift years are
+evaluated for information only.
 
-Chaque run MLflow contient : hyperparamètres et fenêtres d'années (params), MAE / RMSE /
-biais / skill (metrics), commit git et hash des données (tags), le modèle et sa signature.
+Each MLflow run holds: hyperparameters and year windows (params), MAE / RMSE /
+bias / skill (metrics), git commit and data hash (tags), the model and its signature.
 
-Promotion : l'alias `champion` passe sur la nouvelle version seulement si son skill de
-validation est > 0 et sa MAE de validation meilleure que celle du champion actuel ; l'ancien
-champion reçoit l'alias `previous` (utilisé par la procédure de rollback).
+Promotion: the `champion` alias moves to the new version only if its validation skill
+is > 0 and its validation MAE beats the current champion's; the former champion
+gets the `previous` alias (used by the rollback procedure).
 
-Usage : uv run python -m pga.train [--train-years 2021 2021] [--valid-years 2022 2022]
-        [--refit-years 2021 2022] [--run-name NOM] [--no-register]
+Usage: uv run python -m pga.train [--train-years 2021 2021] [--valid-years 2022 2022]
+        [--refit-years 2021 2022] [--run-name NAME] [--no-register]
 """
 from __future__ import annotations
 
@@ -39,12 +39,12 @@ from pga.profile import PROFILE_ARTIFACT, build_profile
 
 EXPERIMENT = "pga-score"
 CHAMPION, PREVIOUS = "champion", "previous"
-# Sérialisation skops (défaut MLflow 3) : classe interne du HGB à déclarer comme sûre.
+# skops serialization (MLflow 3 default): internal HGB class to declare as trusted.
 PIPELINE_OUTPUTS = ("dvc.lock", "reports")
 SKOPS_TRUSTED = ["sklearn.ensemble._hist_gradient_boosting.predictor.TreePredictor"]
 
 
-# --- données et métriques -------------------------------------------------------------
+# --- data and metrics ----------------------------------------------------------------
 
 def select(df: pd.DataFrame, years: tuple[int, int]) -> pd.DataFrame:
     return df[df["year"].between(years[0], years[1])]
@@ -55,7 +55,7 @@ def to_xy(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
 
 
 def baseline(df: pd.DataFrame) -> np.ndarray:
-    """Baseline naïve de docs/metric.md : difficulté historique du parcours, 0 si inconnue."""
+    """Naive baseline from docs/metric.md: historical course difficulty, 0 if unknown."""
     return df["course_diff_mean"].fillna(0.0).to_numpy()
 
 
@@ -80,10 +80,10 @@ def evaluate(y, pred, base, rounds) -> dict[str, float]:
 
 
 def event_bias_sd(event_ids, err) -> float:
-    """Écart-type du biais moyen par tournoi : bruit de référence du monitoring.
+    """Standard deviation of the mean bias per tournament: monitoring's reference noise.
 
-    Tout le field d'un tournoi partage la météo et le réglage du parcours : les erreurs
-    sont corrélées au sein d'un tournoi, l'unité indépendante est le tournoi.
+    The whole field of a tournament shares the weather and the course setup: errors
+    are correlated within a tournament, the independent unit is the tournament.
     """
     by_event = pd.Series(np.asarray(err, dtype=float)).groupby(np.asarray(event_ids)).mean()
     return float(by_event.std(ddof=1)) if len(by_event) > 1 else float("nan")
@@ -94,10 +94,10 @@ def make_model(p: dict) -> HistGradientBoostingRegressor:
 
 
 def train(df: pd.DataFrame, p: dict, train_years, valid_years, refit_years, eval_years=()):
-    """Renvoie (modèle refit, métriques {préfixe_nom: valeur})."""
+    """Returns (refit model, metrics {prefix_name: value})."""
     tr, va = select(df, train_years), select(df, valid_years)
     if tr.empty or va.empty:
-        raise ValueError(f"fenêtre vide : train={train_years} ({len(tr)}), valid={valid_years} ({len(va)})")
+        raise ValueError(f"empty window: train={train_years} ({len(tr)}), valid={valid_years} ({len(va)})")
     model = make_model(p).fit(*to_xy(tr))
     valid_pred = model.predict(to_xy(va)[0])
     metrics = {f"valid_{k}": v for k, v in evaluate(va[TARGET], valid_pred, baseline(va), va["round"]).items()}
@@ -113,10 +113,10 @@ def train(df: pd.DataFrame, p: dict, train_years, valid_years, refit_years, eval
     return final, metrics
 
 
-# --- traçabilité -------------------------------------------------------------------------
+# --- traceability -----------------------------------------------------------------------
 
 def data_hash(path: Path) -> str:
-    """md5 du fichier : identique au md5 enregistré par DVC dans dvc.lock."""
+    """md5 of the file: identical to the md5 recorded by DVC in dvc.lock."""
     h = hashlib.md5()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
@@ -143,8 +143,8 @@ def git_info(root: Path = ROOT) -> dict[str, str]:
         except (subprocess.CalledProcessError, FileNotFoundError):
             return "unknown"
 
-    # Fichiers écrits par `dvc repro` lui-même : ils ne rendent pas le code « sale »
-    # (les données sont tracées à part par data_hash).
+    # Files written by `dvc repro` itself: they don't make the code "dirty"
+    # (data is tracked separately by data_hash).
     status = run("status", "--porcelain", "--untracked-files=no", "--", ".", *(f":!{p}" for p in PIPELINE_OUTPUTS))
     return {
         "git_commit": run("rev-parse", "HEAD"),
@@ -156,9 +156,9 @@ def git_info(root: Path = ROOT) -> dict[str, str]:
 # --- registry ----------------------------------------------------------------------------
 
 def set_champion(client: MlflowClient, name: str, version: str, promoted_at: str | None = None) -> str | None:
-    """`champion` -> `version`, l'ancien champion -> `previous`. Renvoie l'ancien champion.
+    """`champion` -> `version`, the former champion -> `previous`. Returns the former champion.
 
-    `promoted_at` : date de mise en service (simulation « as-of ») ; défaut : maintenant.
+    `promoted_at`: deployment date ("as-of" simulation); default: now.
     """
     try:
         old = str(client.get_model_version_by_alias(name, CHAMPION).version)
@@ -177,11 +177,11 @@ def set_champion(client: MlflowClient, name: str, version: str, promoted_at: str
 
 
 def promote_if_better(client: MlflowClient, name: str, version: str, valid_mae: float, valid_skill: float) -> tuple[bool, str]:
-    """Applique la règle de promotion ; renvoie (promu, raison)."""
+    """Applies the promotion rule; returns (promoted, reason)."""
     client.set_model_version_tag(name, version, "valid_mae", f"{valid_mae:.6f}")
     client.set_model_version_tag(name, version, "valid_skill", f"{valid_skill:.6f}")
     if valid_skill <= 0:
-        reason = f"skill {valid_skill:.4f} <= 0 : ne bat pas la baseline"
+        reason = f"skill {valid_skill:.4f} <= 0: does not beat the baseline"
     else:
         try:
             champ = client.get_model_version_by_alias(name, CHAMPION)
@@ -190,7 +190,7 @@ def promote_if_better(client: MlflowClient, name: str, version: str, valid_mae: 
         champ_mae = float(champ.tags.get("valid_mae", "inf")) if champ else float("inf")
         if valid_mae < champ_mae:
             set_champion(client, name, version)
-            reason = f"MAE {valid_mae:.4f} < champion {champ_mae:.4f}" if champ else "premier champion"
+            reason = f"MAE {valid_mae:.4f} < champion {champ_mae:.4f}" if champ else "first champion"
             return True, reason
         reason = f"MAE {valid_mae:.4f} >= champion v{champ.version} {champ_mae:.4f}"
     client.set_model_version_tag(name, version, "status", "candidate")
@@ -206,11 +206,11 @@ def setup_mlflow(uri: str, artifacts: Path = MLARTIFACTS, experiment: str = EXPE
 
 def log_model_run(model, X_example: pd.DataFrame, params_: dict, metrics: dict, data_path: Path,
                   name: str, register: bool, fit_frame: pd.DataFrame, tags: dict | None = None) -> tuple[str, str | None]:
-    """Logue un modèle entraîné dans le run MLflow actif (params, métriques, traçabilité).
+    """Logs a trained model in the active MLflow run (params, metrics, traceability).
 
-    `fit_frame` : données d'entraînement, résumées dans le profil relu par le monitoring.
+    `fit_frame`: training data, summarized in the profile read back by monitoring.
 
-    Renvoie (run_id, version enregistrée ou None).
+    Returns (run_id, registered version or None).
     """
     run = mlflow.active_run()
     mlflow.log_params(params_)
@@ -264,7 +264,7 @@ def main() -> None:
     p = params()["train"]
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     for k in ("train", "valid", "refit"):
-        ap.add_argument(f"--{k}-years", nargs=2, type=int, default=p[f"{k}_years"], metavar=("DEBUT", "FIN"))
+        ap.add_argument(f"--{k}-years", nargs=2, type=int, default=p[f"{k}_years"], metavar=("START", "END"))
     ap.add_argument("--run-name")
     ap.add_argument("--no-register", action="store_true")
     ap.add_argument("--data", type=Path, default=FEATURES_PATH)
@@ -279,13 +279,14 @@ def main() -> None:
     METRICS_PATH.parent.mkdir(parents=True, exist_ok=True)
     METRICS_PATH.write_text(json.dumps({k: round(v, 4) for k, v in m.items()}, indent=2) + "\n")
     print(f"run {res['run_id']}")
-    print(f"validation {years['valid']} : MAE {m['valid_mae']:.3f} | baseline {m['valid_mae_baseline']:.3f} "
-          f"| skill {m['valid_skill']:+.3%} | biais {m['valid_bias']:+.3f}")
+    print(f"validation {years['valid']}: MAE {m['valid_mae']:.3f} | baseline {m['valid_mae_baseline']:.3f} "
+          f"| skill {m['valid_skill']:+.3%} | bias {m['valid_bias']:+.3f}")
     for k in sorted(k for k in m if k.endswith("_mae") and k.startswith("eval_")):
         y = k.split("_")[1]
-        print(f"  {y} : MAE {m[k]:.3f} | baseline {m[f'eval_{y}_mae_baseline']:.3f} | biais {m[f'eval_{y}_bias']:+.3f}")
+        print(f"  {y}: MAE {m[k]:.3f} | baseline {m[f'eval_{y}_mae_baseline']:.3f} | bias {m[f'eval_{y}_bias']:+.3f}")
     if res["version"]:
-        print(f"{p['registered_model_name']} v{res['version']} : {'PROMU champion' if res['promoted'] else 'non promu'} ({res['reason']})")
+        outcome = "PROMOTED champion" if res["promoted"] else "not promoted"
+        print(f"{p['registered_model_name']} v{res['version']}: {outcome} ({res['reason']})")
 
 
 if __name__ == "__main__":

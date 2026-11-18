@@ -1,4 +1,4 @@
-"""Rejoue la production : envoie à l'API les joueur-tours d'une période (par lots).
+"""Replays production: sends the player-rounds of a period to the API (in batches).
 
   uv run python scripts/send_requests.py --from 2024-03-01 --to 2024-04-21 [--api-url http://127.0.0.1:8000]
 """
@@ -40,15 +40,15 @@ def main() -> int:
     df = df[(df["event_start"] >= lo) & (df["event_start"] < hi)]
     df[FEATURES] = df[FEATURES].astype(float)
     if df.empty:
-        print("aucun tour sur cette période", file=sys.stderr)
+        print("no rounds in this period", file=sys.stderr)
         return 1
     rows, versions = to_rows(df), set()
     for i in range(0, len(rows), args.batch):
         r = requests.post(f"{args.api_url.rstrip('/')}/predict", json={"rows": rows[i : i + args.batch]}, timeout=60)
         r.raise_for_status()
         versions.add(r.json()["model_version"])
-    print(f"{len(rows)} prédictions ({df['event_id'].nunique()} tournois, {args.start} -> {args.end}) "
-          f"servies par v{', v'.join(sorted(versions))}")
+    print(f"{len(rows)} predictions ({df['event_id'].nunique()} tournaments, {args.start} -> {args.end}) "
+          f"served by v{', v'.join(sorted(versions))}")
     return 0
 
 

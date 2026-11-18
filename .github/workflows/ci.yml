@@ -20,13 +20,13 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Dépendances (uv.lock, sans mise à jour)
+      - name: Dependencies (uv.lock, no update)
         run: uv sync --locked
 
       - name: Lint (ruff)
         run: uv run ruff check .
 
-      - name: Tests (aucune donnée DVC requise)
+      - name: Tests (no DVC data required)
         run: uv run pytest -q
         env:
           MLFLOW_DISABLE_AGENT_HINT: "1"
@@ -37,10 +37,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build de l'image
+      - name: Build the image
         run: docker build -t pga-mlops .
 
-      - name: Le service démarre et répond (sans modèle, sans données)
+      - name: The service starts and responds (no model, no data)
         run: |
           docker run -d --name api -p 8000:8000 pga-mlops
           for _ in $(seq 1 60); do curl -fs localhost:8000/health && break; sleep 2; done

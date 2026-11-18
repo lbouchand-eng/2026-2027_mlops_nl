@@ -1,13 +1,13 @@
-"""Étape 5 : météo de la fenêtre de jeu de chaque tour (prévue et observée).
+"""Stage 5: weather over each round's playing window (forecast and observed).
 
-Par tournoi, deux appels Open-Meteo sur le parcours hôte (heures UTC) :
-- historical-forecast-api : la prévision archivée (ce qu'on aurait su avant le tour)
-  -> sert de variable d'entrée au modèle (pas de fuite d'information) ;
-- archive-api (ERA5) : la météo observée -> sert à mesurer l'écart observé - prévu.
-La prévision archivée n'existe pas pour les plus vieilles années (≈ avant 2018) :
-ces lignes ont fc_* = NaN, ce qui ne gêne pas car 2016-2020 ne sert qu'à l'historique.
+Per tournament, two Open-Meteo calls on the host course (UTC hours):
+- historical-forecast-api: the archived forecast (what would have been known before the round)
+  -> used as a model input (no information leakage);
+- archive-api (ERA5): the observed weather -> used to measure the observed - forecast gap.
+The archived forecast does not exist for the oldest years (≈ before 2018):
+those rows have fc_* = NaN, which is fine since 2016-2020 is only used for history.
 
-Agrégation sur [teeTime, teeTime + window_hours[ pour chaque joueur-tour.
+Aggregation over [teeTime, teeTime + window_hours[ for each player-round.
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ SOURCES = {
     "fc": ("https://historical-forecast-api.open-meteo.com/v1/forecast", RAW_METEO_FC),
     "obs": ("https://archive-api.open-meteo.com/v1/archive", RAW_METEO_OBS),
 }
-# variable horaire -> (nom agrégé, fonction d'agrégation)
+# hourly variable -> (aggregated name, aggregation function)
 AGG = {
     "temperature_2m": ("temp_mean", np.nanmean),
     "relative_humidity_2m": ("humidity_mean", np.nanmean),
@@ -34,18 +34,18 @@ AGG = {
 
 
 def check_wind_units(units: dict) -> None:
-    """Refuse une réponse dont le vent n'est pas en km/h (cause de l'incident : docs/incident.md)."""
+    """Rejects a response whose wind is not in km/h (cause of the incident: docs/incident.md)."""
     for col in ("wind_speed_10m", "wind_gusts_10m"):
         if units.get(col) != "km/h":
-            raise ValueError(f"unité inattendue pour {col} : {units.get(col)!r} (attendu : km/h)")
+            raise ValueError(f"unexpected unit for {col}: {units.get(col)!r} (expected: km/h)")
 
 
 def wind_median_problem(wind: pd.Series, bounds: list[float]) -> str | None:
-    """Motif de refus si la médiane du vent prévu sort de la plage historique, sinon None."""
+    """Rejection reason if the forecast wind median falls outside the historical range, else None."""
     median = float(wind.median())
     if bounds[0] <= median <= bounds[1]:
         return None
-    return f"médiane du vent {median:.1f} km/h hors de la plage [{bounds[0]:g}, {bounds[1]:g}]"
+    return f"wind median {median:.1f} km/h outside the range [{bounds[0]:g}, {bounds[1]:g}]"
 
 
 def fetch_hourly(src: str, event_id: str, lat: float, lon: float, start, end, hourly: list[str], p: dict) -> pd.DataFrame:
@@ -72,10 +72,10 @@ def fetch_hourly(src: str, event_id: str, lat: float, lon: float, start, end, ho
 
 
 def aggregate_window(hourly: pd.DataFrame, tee_times: pd.Series, window_h: int, prefix: str) -> pd.DataFrame:
-    """Une ligne par tee time : agrégats horaires sur la fenêtre de jeu.
+    """One row per tee time: hourly aggregates over the playing window.
 
-    Les joueurs d'un même groupe partagent leur tee time : on calcule une fois par
-    tee time unique puis on redistribue.
+    Players in the same group share their tee time: compute once per unique
+    tee time, then redistribute.
     """
     idx = hourly.index.tz_convert(None).to_numpy()
     uniq = pd.Series(tee_times.dropna().unique())
@@ -128,21 +128,21 @@ def main() -> None:
 
     problem = wind_median_problem(df["fc_wind_mean"], w["wind_median_kmh"])
     if problem:
-        sys.exit(f"backfill météo refusé : {problem}")
+        sys.exit(f"weather backfill rejected: {problem}")
     WEATHER_ROUNDS.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(WEATHER_ROUNDS, index=False)
     year = rounds.set_index(["event_id", "player_id", "round"]).year
     cov = df.set_index(["event_id", "player_id", "round"]).join(year).groupby("year")[
         ["fc_wind_mean", "obs_wind_mean"]
     ].agg(lambda s: round(100 * s.notna().mean(), 1))
-    print(f"{len(df):,} lignes -> {WEATHER_ROUNDS}")
-    print("% de tours avec météo (prévue / observée) :")
+    print(f"{len(df):,} rows -> {WEATHER_ROUNDS}")
+    print("% of rounds with weather (forecast / observed):")
     print(cov.to_string())
-    print("écart observé - prévu, vent moyen (km/h) par année :")
+    print("observed - forecast gap, mean wind (km/h) per year:")
     by_year = df.join(year, on=["event_id", "player_id", "round"]).groupby("year").diff_wind_mean
     print(by_year.describe()[["mean", "std"]].round(2).to_string())
     if failed:
-        sys.exit(f"{len(failed)} appel(s) en échec : relancer pour réessayer.")
+        sys.exit(f"{len(failed)} failed call(s): rerun to retry.")
 
 
 if __name__ == "__main__":
