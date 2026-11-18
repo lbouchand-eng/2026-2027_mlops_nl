@@ -520,7 +520,7 @@ With another month, we would: let the CUSUM take part in the trigger's decision;
 {"status":"ok","model_name":"pga-score-model","model_alias":"champion","model_version":"2","detail":null}
 
 ▶ 2. Production: the March-April 2024 tournaments sent to /predict
-3,442 predictions (9 tournaments, 2024-03-01 -> 2024-04-21) served by v2
+3442 predictions (9 tournaments, 2024-03-01 -> 2024-04-21) served by v2
 
 ▶ 3. Monitoring on the API prediction journal (actual scores known)
 status: ALERT  (model v2, last tournament: Corales Puntacana Championship)
@@ -540,7 +540,7 @@ status: ALERT  (model v2, last tournament: Corales Puntacana Championship)
 {"status":"ok","model_name":"pga-score-model","model_alias":"champion","model_version":"1","detail":null}
 
 ▶ 6. Same requests, then monitoring: back within thresholds
-3,442 predictions (9 tournaments, 2024-03-01 -> 2024-04-21) served by v1
+3442 predictions (9 tournaments, 2024-03-01 -> 2024-04-21) served by v1
 status: OK  (model v1, last tournament: Corales Puntacana Championship)
   PSI max 0.0569 (form_rel_long) | bias 0.2323 (z 0.77) | MAE ratio 0.9419
 
