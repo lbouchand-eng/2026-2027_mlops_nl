@@ -18,7 +18,8 @@ sur les données d'entraînement du modèle servi. `retry` retente le backfill e
 L'étape 2_journal isole la comparaison faite sur le journal de l'API, sans les autres garde-fous.
 
 Registry isolé (mlflow_incident.db, mlartifacts_incident/) : le scénario est rejouable sans
-toucher au registry principal.
+toucher au registry principal. PGA_INCIDENT_DB et PGA_INCIDENT_ARTIFACTS le remplacent : la démo
+sur la stack Compose (scripts/demo_live.sh) les pointe sur le registry servi par l'API et MLflow.
 
 Usage : uv run python scripts/incident.py all [--guards] [--api-url http://127.0.0.1:8000]
         uv run python scripts/incident.py setup|corrupt|detect|rollback|recover|summary|retry
@@ -33,8 +34,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DB = ROOT / "mlflow_incident.db"
-ARTIFACTS = ROOT / "mlartifacts_incident"
+DB = Path(os.environ.get("PGA_INCIDENT_DB", ROOT / "mlflow_incident.db"))
+ARTIFACTS = Path(os.environ.get("PGA_INCIDENT_ARTIFACTS", ROOT / "mlartifacts_incident"))
 OUT = ROOT / "reports" / "incident"
 GUARDS = False
 os.environ["MLFLOW_TRACKING_URI"] = f"sqlite:///{DB}"  # avant tout import de pga
@@ -104,7 +105,7 @@ def prod_timeline(df, champ, p, label, title, before: M.Champion | None = None):
 def step_setup(args):
     if DB.exists():
         DB.unlink()
-    shutil.rmtree(ARTIFACTS, ignore_errors=True)
+    shutil.rmtree(ARTIFACTS, ignore_errors=True)  # sur un volume Docker : vide le contenu, garde le point de montage
     T.setup_mlflow(os.environ["MLFLOW_TRACKING_URI"], ARTIFACTS)
     p, df, client, name = ctx()
     years = {k: p["train"][f"{k}_years"] for k in ("train", "valid", "refit")}
